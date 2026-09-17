@@ -43,6 +43,14 @@ typedef struct {
     int            detail_scroll;
     int            detail_on_more;
 
+    /* Notifications */
+    notif_store_t notifs;
+    int    notif_sel;
+    int    notif_top;
+    int    notif_on_more;
+    int    notif_new;        /* how many were unseen when the list loaded */
+    time_t notifs_fetched;
+
     int    unseen;           /* notification badge count */
     time_t unseen_fetched;
 

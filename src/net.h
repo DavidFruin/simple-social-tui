@@ -30,4 +30,8 @@ int net_delete_post(app_t *app, const char *post_id);
 int net_delete_comment(app_t *app, int comment_id);
 int net_reload_comments(app_t *app);
 
+/* Notifications */
+int net_refresh_notifs(app_t *app);
+int net_load_more_notifs(app_t *app);
+
 #endif

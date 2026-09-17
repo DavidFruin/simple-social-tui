@@ -38,4 +38,18 @@ void cstore_free(comment_store_t *s);
 void cstore_clear(comment_store_t *s);
 int  cstore_append(comment_store_t *s, const api_comment_t *src, int n);
 
+/* Notifications. The endpoint returns a fixed page of 25 and reports no
+ * total, so has_more is inferred from getting a full page back. */
+typedef struct {
+    api_notification_t *notifs;
+    int count;
+    int cap;
+    int has_more;
+} notif_store_t;
+
+void nstore_init(notif_store_t *s);
+void nstore_free(notif_store_t *s);
+void nstore_clear(notif_store_t *s);
+int  nstore_append(notif_store_t *s, const api_notification_t *src, int n);
+
 #endif

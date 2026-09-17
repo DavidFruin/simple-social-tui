@@ -167,6 +167,8 @@ static const char *hints_for(app_t *app) {
     switch (app->tab) {
         case TAB_FEED:
             return "j/k:move  enter:open  c:post  l:like  r:refresh  ?:help  q:quit";
+        case TAB_NOTIFS:
+            return "j/k:move  enter:open post  r:refresh  1-5:tabs  ?:help  q:quit";
         default:
             return "1-5:tabs  r:refresh  ?:help  q:quit";
     }
@@ -421,6 +423,108 @@ static void draw_feed(app_t *app) {
     }
 }
 
+/* The five types api.php writes. */
+static const char *notif_phrase(const char *type) {
+    if (strcmp(type, "like") == 0)     return "liked your post";
+    if (strcmp(type, "unlike") == 0)   return "unliked your post";
+    if (strcmp(type, "comment") == 0)  return "commented on your post";
+    if (strcmp(type, "follow") == 0)   return "followed you";
+    if (strcmp(type, "unfollow") == 0) return "unfollowed you";
+    return type;
+}
+
+static void draw_notifs(app_t *app) {
+    int bottom = LINES - 2;
+
+    if (app->notifs.count == 0) {
+        attron(A_DIM);
+        mvaddstr(BODY_TOP + 1, 2,
+                 app->notifs_fetched ? "Nothing here yet."
+                                     : "Press r to load your notifications.");
+        attroff(A_DIM);
+        return;
+    }
+
+    int rows = bottom - BODY_TOP + 1;
+    if (rows < 1) rows = 1;
+
+    /* Parked on the load-more row: keep a line for it, or moving onto it
+     * looks like nothing happened. */
+    int reserve = app->notif_on_more ? 1 : 0;
+    int avail = rows - reserve;
+    if (avail < 1) avail = 1;
+
+    int target = app->notif_on_more ? app->notifs.count - 1 : app->notif_sel;
+    if (target < app->notif_top) app->notif_top = target;
+    if (target >= app->notif_top + avail) app->notif_top = target - avail + 1;
+    if (app->notif_top < 0) app->notif_top = 0;
+
+    int row = BODY_TOP;
+    for (int i = app->notif_top; i < app->notifs.count && row <= bottom - reserve; i++, row++) {
+        api_notification_t *n = &app->notifs.notifs[i];
+
+        char when[32];
+        timefmt_short(n->created_at, when, sizeof(when));
+        int when_w = ui_utf8_width(when);
+
+        /* Entries that arrived since the last visit. */
+        int is_new = (i < app->notif_new);
+        int selected = (i == app->notif_sel && !app->notif_on_more);
+
+        int actor_w = COLS < 60 ? 16 : 26;
+        char actor[128];
+        ui_utf8_take(actor, sizeof(actor), n->actor_email, actor_w, 1);
+
+        const char *phrase = notif_phrase(n->type);
+        int phrase_x = 2 + actor_w + 1;
+        int phrase_w = COLS - phrase_x - when_w - 2;
+        if (phrase_w < 4) phrase_w = 4;
+
+        char what[128];
+        ui_utf8_take(what, sizeof(what), phrase, phrase_w, 1);
+
+        if (selected) { attron(A_REVERSE); mvhline(row, 0, ' ', COLS); }
+
+        if (is_new) {
+            attron(COLOR_PAIR(CP_BADGE) | A_BOLD);
+            mvaddstr(row, 0, "\xe2\x97\x8f");     /* new marker */
+            attroff(COLOR_PAIR(CP_BADGE) | A_BOLD);
+        }
+
+        if (!selected) attron(COLOR_PAIR(CP_AUTHOR));
+        mvaddstr(row, 2, actor);
+        if (!selected) attroff(COLOR_PAIR(CP_AUTHOR));
+
+        if (is_new && !selected) attron(A_BOLD);
+        mvaddstr(row, phrase_x, what);
+        if (is_new && !selected) attroff(A_BOLD);
+
+        if (!selected) attron(A_DIM);
+        mvaddstr(row, COLS - when_w - 1, when);
+        if (!selected) attroff(A_DIM);
+
+        if (selected) attroff(A_REVERSE);
+    }
+
+    if (row <= bottom) {
+        char more[128];
+        if (app->notifs.has_more)
+            snprintf(more, sizeof(more), "-- load more (%d shown) --", app->notifs.count);
+        else
+            snprintf(more, sizeof(more), "-- that is all (%d) --", app->notifs.count);
+
+        int w = ui_utf8_width(more);
+        int x = (COLS - w) / 2;
+        if (x < 0) x = 0;
+
+        if (app->notif_on_more && app->notifs.has_more) attron(A_REVERSE | A_BOLD);
+        else attron(A_DIM);
+        mvaddstr(row, x, more);
+        if (app->notif_on_more && app->notifs.has_more) attroff(A_REVERSE | A_BOLD);
+        else attroff(A_DIM);
+    }
+}
+
 static void draw_placeholder(app_t *app, const char *what) {
     attron(A_DIM);
     mvprintw(BODY_TOP + 1, 2, "%s is not built yet.", what);
@@ -443,7 +547,7 @@ void ui_draw(app_t *app) {
 
     switch (app->tab) {
         case TAB_FEED:     draw_feed(app); break;
-        case TAB_NOTIFS:   draw_placeholder(app, "Notifications"); break;
+        case TAB_NOTIFS:   draw_notifs(app); break;
         case TAB_USERS:    draw_placeholder(app, "Users"); break;
         case TAB_ME:       draw_placeholder(app, "Your profile"); break;
         case TAB_SETTINGS: draw_placeholder(app, "Settings"); break;
@@ -528,6 +632,10 @@ void ui_help(app_t *app) {
         "  ctrl-o                attach media (posts only)",
         "  esc                   cancel (asks first if you wrote something)",
         "  arrows, home / end    move the cursor",
+        "",
+        "Notifications",
+        "  enter                 open the post it refers to",
+        "  r                     refresh",
         "",
         "Tabs",
         "  1 - 5                 jump to a tab",

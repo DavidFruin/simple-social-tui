@@ -27,6 +27,7 @@ int app_init(app_t *app) {
     tui_cfg_load(&app->cfg);
     store_init(&app->feed);
     cstore_init(&app->comments);
+    nstore_init(&app->notifs);
     app->tab = TAB_FEED;
     app->view = VIEW_TABS;
     app->detail_src = -1;
@@ -36,6 +37,7 @@ int app_init(app_t *app) {
 void app_free(app_t *app) {
     store_free(&app->feed);
     cstore_free(&app->comments);
+    nstore_free(&app->notifs);
 }
 
 void app_set_status(app_t *app, const char *fmt, ...) {
@@ -109,6 +111,44 @@ static void open_selected_post(app_t *app) {
     if (app->feed.count == 0 || app->feed_on_more) return;
     int rc = net_open_post(app, app->feed.posts[app->feed_sel].id, app->feed_sel);
     if (rc != 0 && app->status_is_error) ui_modal_error(app, app->status);
+}
+
+static void notif_move(app_t *app, int delta) {
+    if (app->notifs.count == 0) return;
+
+    if (app->notif_on_more) {
+        if (delta < 0) { app->notif_on_more = 0; app->notif_sel = app->notifs.count - 1; }
+        return;
+    }
+
+    int next = app->notif_sel + delta;
+    if (next >= app->notifs.count) {
+        if (app->notifs.has_more) { app->notif_on_more = 1; return; }
+        next = app->notifs.count - 1;
+    }
+    if (next < 0) next = 0;
+    app->notif_sel = next;
+}
+
+/* Opens the post a notification refers to. follow/unfollow carry no post,
+ * so there is nothing to open until profiles exist. */
+static void open_notif_target(app_t *app) {
+    if (app->notifs.count == 0) return;
+
+    if (app->notif_on_more) {
+        report(app, net_load_more_notifs(app));
+        app->notif_on_more = 0;
+        return;
+    }
+
+    api_notification_t *n = &app->notifs.notifs[app->notif_sel];
+    if (!n->post_id[0]) {
+        app_set_status(app, "That one is about a follow, not a post.");
+        return;
+    }
+
+    /* -1: this did not come from the feed, so there is no row to keep in step. */
+    report(app, net_open_post(app, n->post_id, -1));
 }
 
 static void close_post(app_t *app) {
@@ -227,6 +267,11 @@ static void switch_tab(app_t *app, tab_t t) {
             (app->cfg.feed_refresh_secs > 0 &&
              difftime(time(NULL), app->feed_fetched) >= app->cfg.feed_refresh_secs);
         if (stale) report(app, net_refresh_feed(app));
+    } else if (t == TAB_NOTIFS) {
+        int stale = !app->notifs_fetched ||
+            (app->cfg.feed_refresh_secs > 0 &&
+             difftime(time(NULL), app->notifs_fetched) >= app->cfg.feed_refresh_secs);
+        if (stale) report(app, net_refresh_notifs(app));
     }
 }
 
@@ -242,12 +287,22 @@ static void run_timers(app_t *app) {
         net_refresh_badge(app);   /* silent: a failed badge poll is not worth a modal */
     }
 
+    if (app->view != VIEW_TABS) return;
+
     if (app->tab == TAB_FEED && app->cfg.feed_refresh_secs > 0 && app->feed_fetched &&
         difftime(now, app->feed_fetched) >= app->cfg.feed_refresh_secs) {
         /* Hold position across an idle refresh rather than snapping to top. */
         int sel = app->feed_sel, top = app->feed_top;
         if (net_refresh_feed(app) == 0) {
             if (sel < app->feed.count) { app->feed_sel = sel; app->feed_top = top; }
+        }
+    }
+
+    if (app->tab == TAB_NOTIFS && app->cfg.feed_refresh_secs > 0 && app->notifs_fetched &&
+        difftime(now, app->notifs_fetched) >= app->cfg.feed_refresh_secs) {
+        int sel = app->notif_sel, top = app->notif_top;
+        if (net_refresh_notifs(app) == 0) {
+            if (sel < app->notifs.count) { app->notif_sel = sel; app->notif_top = top; }
         }
     }
 }
@@ -344,25 +399,48 @@ void app_run(app_t *app) {
                 app->quit = 1;
                 break;
 
-            case 'j': case KEY_DOWN:  feed_move(app, 1);  break;
-            case 'k': case KEY_UP:    feed_move(app, -1); break;
-            case KEY_NPAGE: case 4:   feed_page(app, 1);  break;   /* ^D */
-            case KEY_PPAGE: case 21:  feed_page(app, -1); break;   /* ^U */
+            case 'j': case KEY_DOWN:
+                if (app->tab == TAB_NOTIFS) notif_move(app, 1); else feed_move(app, 1);
+                break;
+            case 'k': case KEY_UP:
+                if (app->tab == TAB_NOTIFS) notif_move(app, -1); else feed_move(app, -1);
+                break;
+            case KEY_NPAGE: case 4:                                /* ^D */
+                if (app->tab == TAB_NOTIFS) notif_move(app, ui_body_height() / 2);
+                else feed_page(app, 1);
+                break;
+            case KEY_PPAGE: case 21:                               /* ^U */
+                if (app->tab == TAB_NOTIFS) notif_move(app, -(ui_body_height() / 2));
+                else feed_page(app, -1);
+                break;
 
             case 'g': case KEY_HOME:
-                app->feed_sel = 0; app->feed_top = 0; app->feed_on_more = 0;
+                if (app->tab == TAB_NOTIFS) {
+                    app->notif_sel = 0; app->notif_top = 0; app->notif_on_more = 0;
+                } else {
+                    app->feed_sel = 0; app->feed_top = 0; app->feed_on_more = 0;
+                }
                 break;
 
             case 'G': case KEY_END:
-                if (app->feed.count) { app->feed_sel = app->feed.count - 1; app->feed_on_more = 0; }
+                if (app->tab == TAB_NOTIFS) {
+                    if (app->notifs.count) {
+                        app->notif_sel = app->notifs.count - 1;
+                        app->notif_on_more = 0;
+                    }
+                } else if (app->feed.count) {
+                    app->feed_sel = app->feed.count - 1; app->feed_on_more = 0;
+                }
                 break;
 
             case 'r':
-                if (app->tab == TAB_FEED) report(app, net_refresh_feed(app));
-                net_refresh_badge(app);
+                if (app->tab == TAB_FEED) { report(app, net_refresh_feed(app)); net_refresh_badge(app); }
+                else if (app->tab == TAB_NOTIFS) report(app, net_refresh_notifs(app));
+                else net_refresh_badge(app);
                 break;
 
             case '\r': case '\n': case KEY_ENTER: case ' ':
+                if (app->tab == TAB_NOTIFS) { open_notif_target(app); break; }
                 if (app->tab != TAB_FEED) break;
                 if (app->feed_on_more) {
                     report(app, net_load_more_feed(app));

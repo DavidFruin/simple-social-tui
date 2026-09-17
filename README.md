@@ -50,6 +50,14 @@ Vim-style, with arrows and page keys working too.
 | `?` | help overlay |
 | `q` | quit |
 
+In the notifications tab:
+
+| Key | Does |
+|---|---|
+| `j` / `k`, `g` / `G` | move |
+| `Enter` | open the post it refers to; on load-more, fetch the next page |
+| `r` | refresh |
+
 In an open post:
 
 | Key | Does |
@@ -156,6 +164,20 @@ arguments (`code -w`), with the path passed as `"$1"` rather than interpolated.
 If the TUI is killed outright while the editor is open, its temp file in `/tmp` is
 left behind — the cleanup runs after the editor exits.
 
+## Notifications
+
+Opening the tab is what marks them seen, so the badge clears on arrival. The unseen
+count is read *before* marking, and that many entries are flagged as new, since the
+API reports only a count and a `last_seen` timestamp — there is no per-notification
+seen flag to read.
+
+`api.php` writes five types: `like`, `unlike`, `comment`, `follow` and `unfollow`.
+Follows carry no post id, so `Enter` on one says so rather than opening nothing.
+
+`getNotifications` serves fixed pages of 25 and reports no total, so "more" is
+inferred from getting a full page back — which means the last page is reached by
+asking once more and getting fewer than 25.
+
 ## Attaching media
 
 `Ctrl-O` in the composer opens a picker rooted at the library's configured
@@ -191,7 +213,7 @@ unlike, opening media in the system viewer, writing posts and comments (inline o
 `$EDITOR`), attaching media with a picker or a typed path, deleting your own posts
 and comments with confirmation, help overlay, error modals.
 
-Not built yet: notifications, users, profiles, settings, login / register.
+Not built yet: users, profiles, settings, login / register.
 
 Deletes are guarded twice: the key does nothing but explain itself unless the post
 or comment is yours, and then it asks. `ui_confirm` treats anything other than

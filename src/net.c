@@ -19,6 +19,12 @@ static api_comments_result_t *cpage_buf(void) {
     return buf;
 }
 
+static api_notifications_result_t *npage_buf(void) {
+    static api_notifications_result_t *buf = NULL;
+    if (!buf) buf = calloc(1, sizeof(api_notifications_result_t));
+    return buf;
+}
+
 /* Paint the pending message and force it out before we block. */
 static void announce(app_t *app, const char *msg) {
     app_set_status(app, "%s", msg);
@@ -274,4 +280,71 @@ int net_delete_comment(app_t *app, int comment_id) {
 
 int net_reload_comments(app_t *app) {
     return fetch_comments(app, 0, 0);
+}
+
+/* ---------- notifications ---------- */
+
+/* api.php serves getNotifications in fixed pages of this size. */
+#define NOTIF_PAGE 25
+
+static int fetch_notifs(app_t *app, int offset, int append) {
+    api_notifications_result_t *res = npage_buf();
+    if (!res) { app_set_error(app, "out of memory"); return -1; }
+
+    announce(app, append ? "Loading more..." : "Loading notifications...");
+
+    memset(res, 0, sizeof(*res));
+    if (api_get_notifications(offset, res) != 0) {
+        app_set_error(app, "%s", api_get_last_error());
+        return -1;
+    }
+
+    if (!append) nstore_clear(&app->notifs);
+    if (nstore_append(&app->notifs, res->notifications, res->count) != 0) {
+        app_set_error(app, "out of memory");
+        return -1;
+    }
+
+    /* No total comes back, so a full page means there may be another. */
+    app->notifs.has_more = (res->count == NOTIF_PAGE);
+    app->notifs_fetched = time(NULL);
+    return 0;
+}
+
+int net_refresh_notifs(app_t *app) {
+    /* Capture the unseen count before marking them seen, so the new ones
+     * can still be pointed out in the list. */
+    int was_unseen = app->unseen;
+
+    if (fetch_notifs(app, 0, 0) != 0) return -1;
+
+    app->notif_sel = 0;
+    app->notif_top = 0;
+    app->notif_on_more = 0;
+    app->notif_new = was_unseen < app->notifs.count ? was_unseen : app->notifs.count;
+
+    /* Opening the tab is what counts as having seen them. */
+    if (api_mark_notifications_seen() == 0) {
+        app->unseen = 0;
+        app->unseen_fetched = time(NULL);
+    }
+
+    if (app->notifs.count == 0) app_set_status(app, "No notifications.");
+    else if (app->notif_new > 0)
+        app_set_status(app, "%d new of %d.", app->notif_new, app->notifs.count);
+    else
+        app_set_status(app, "%d notifications.", app->notifs.count);
+    return 0;
+}
+
+int net_load_more_notifs(app_t *app) {
+    if (!app->notifs.has_more) {
+        app_set_status(app, "No more notifications.");
+        return 0;
+    }
+    int before = app->notifs.count;
+    if (fetch_notifs(app, app->notifs.count, 1) != 0) return -1;
+    app_set_status(app, "Loaded %d more (%d shown).",
+                   app->notifs.count - before, app->notifs.count);
+    return 0;
 }

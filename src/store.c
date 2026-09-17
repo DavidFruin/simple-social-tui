@@ -73,3 +73,37 @@ int cstore_append(comment_store_t *s, const api_comment_t *src, int n) {
     s->count += n;
     return 0;
 }
+
+void nstore_init(notif_store_t *s) {
+    s->notifs = NULL;
+    s->count = 0;
+    s->cap = 0;
+    s->has_more = 0;
+}
+
+void nstore_free(notif_store_t *s) {
+    free(s->notifs);
+    nstore_init(s);
+}
+
+void nstore_clear(notif_store_t *s) {
+    s->count = 0;
+    s->has_more = 0;
+}
+
+int nstore_append(notif_store_t *s, const api_notification_t *src, int n) {
+    if (n <= 0) return 0;
+
+    if (s->count + n > s->cap) {
+        int cap = s->cap ? s->cap : 32;
+        while (cap < s->count + n) cap *= 2;
+        api_notification_t *p = realloc(s->notifs, (size_t)cap * sizeof(api_notification_t));
+        if (!p) return -1;
+        s->notifs = p;
+        s->cap = cap;
+    }
+
+    memcpy(s->notifs + s->count, src, (size_t)n * sizeof(api_notification_t));
+    s->count += n;
+    return 0;
+}
