@@ -27,8 +27,13 @@ typedef struct {
 int  editor_init(editor_t *ed, const char *initial, int max_chars);
 void editor_free(editor_t *ed);
 
-/* Runs the editor modally. Returns EDITOR_SUBMIT or EDITOR_CANCEL. */
-int  editor_run(app_t *app, editor_t *ed, const char *title, const char *send_label);
+/* Runs the editor modally. Returns EDITOR_SUBMIT or EDITOR_CANCEL.
+ *
+ * When `attach` is non-NULL, ^O opens the media picker and the chosen
+ * path is written there; the box shows what is attached. Pass NULL where
+ * media makes no sense -- the API takes no media on comments. */
+int  editor_run(app_t *app, editor_t *ed, const char *title, const char *send_label,
+                char *attach, size_t attach_sz);
 
 /* Characters (not bytes) currently in the buffer. */
 int  editor_char_count(const editor_t *ed);

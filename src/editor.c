@@ -7,6 +7,7 @@
 #include <ncurses.h>
 #include "editor.h"
 #include "ui.h"
+#include "filepick.h"
 
 #define MAX_ROWS 512
 
@@ -206,13 +207,14 @@ static box_t compute_box(void) {
     if (b.top < 0) b.top = 0;
 
     b.text_w = b.w - 4;
-    b.text_h = b.h - 4;       /* borders + counter row */
+    b.text_h = b.h - 5;       /* borders, attachment row, counter row */
     if (b.text_w < 8) b.text_w = 8;
     if (b.text_h < 1) b.text_h = 1;
     return b;
 }
 
-int editor_run(app_t *app, editor_t *ed, const char *title, const char *send_label) {
+int editor_run(app_t *app, editor_t *ed, const char *title, const char *send_label,
+               char *attach, size_t attach_sz) {
     static erow_t rows[MAX_ROWS];
 
     int scroll = 0;
@@ -271,8 +273,24 @@ int editor_run(app_t *app, editor_t *ed, const char *title, const char *send_lab
         if (over_limit) wattroff(win, COLOR_PAIR(CP_ERROR) | A_BOLD);
         else wattroff(win, A_DIM);
 
+        /* Attachment, just above the counter row. */
+        if (attach && attach[0] && b.h >= 6) {
+            const char *base = strrchr(attach, '/');
+            base = base ? base + 1 : attach;
+            char line[256];
+            snprintf(line, sizeof(line), "attached: %s", base);
+            char shown[256];
+            ui_utf8_take(shown, sizeof(shown), line, b.w - 4, 1);
+            wattron(win, COLOR_PAIR(CP_LIKED));
+            mvwaddstr(win, b.h - 3, 2, shown);
+            wattroff(win, COLOR_PAIR(CP_LIKED));
+        }
+
         char hint[128];
-        snprintf(hint, sizeof(hint), "^D %s   esc cancel", send_label);
+        if (attach)
+            snprintf(hint, sizeof(hint), "^D %s   ^O media   esc cancel", send_label);
+        else
+            snprintf(hint, sizeof(hint), "^D %s   esc cancel", send_label);
         int hw = ui_utf8_width(hint);
         if (b.w - 2 - hw > (int)strlen(meta) + 3) {
             wattron(win, A_DIM);
@@ -360,6 +378,16 @@ int editor_run(app_t *app, editor_t *ed, const char *title, const char *send_lab
                 }
                 result = EDITOR_CANCEL;
                 goto done;
+
+            case 15:                    /* ^O: attach media */
+                if (attach) {
+                    char picked[1024];
+                    if (filepick_run(app, picked, sizeof(picked)))
+                        snprintf(attach, attach_sz, "%s", picked);
+                    timeout(-1);        /* filepick restored the 500ms timeout */
+                    curs_set(1);
+                }
+                break;
 
             case 1:  ed->cursor = rows[crow].start; break;   /* ^A */
             case 5:  ed->cursor = rows[crow].end;   break;   /* ^E */

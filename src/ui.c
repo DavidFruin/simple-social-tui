@@ -525,6 +525,7 @@ void ui_help(app_t *app) {
         "Composer",
         "  type                  insert; enter makes a new line",
         "  ctrl-d                send",
+        "  ctrl-o                attach media (posts only)",
         "  esc                   cancel (asks first if you wrote something)",
         "  arrows, home / end    move the cursor",
         "",

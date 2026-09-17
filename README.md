@@ -63,12 +63,23 @@ In an open post:
 | `D` | delete the post (yours only) |
 | `Esc` / `Backspace` | back to the feed, selection preserved |
 
+In the file picker:
+
+| Key | Does |
+|---|---|
+| `j` / `k`, `g` / `G` | move |
+| `Enter` | enter a folder, or attach the file |
+| `h` / `←` | up a folder |
+| `/` | type a path instead, with `Tab` completion |
+| `Esc` | cancel |
+
 In the composer:
 
 | Key | Does |
 |---|---|
 | typing | inserts; `Enter` starts a new line |
 | `Ctrl-D` | send |
+| `Ctrl-O` | attach a media file (posts only) |
 | `Esc` | cancel — asks first if you have written something |
 | arrows, `Home` / `End`, `Ctrl-A` / `Ctrl-E` | move the cursor |
 | `Backspace` / `Delete` | delete a character either side of the cursor |
@@ -115,6 +126,7 @@ src/app.c       app state, event loop, key handling, idle timers
 src/ui.c        drawing: tab bar, feed, status line, modal, help, UTF-8 truncation
 src/detail.c    post detail: post, comments, selection, scrolling
 src/editor.c    inline multi-line editor
+src/filepick.c  media picker: folder browser and typed path with completion
 src/net.c       the blocking-fetch seam
 src/shell.c     handing the terminal to an external program, media URL building
 src/store.c     growable post and comment lists
@@ -144,17 +156,42 @@ arguments (`code -w`), with the path passed as `"$1"` rather than interpolated.
 If the TUI is killed outright while the editor is open, its temp file in `/tmp` is
 left behind — the cleanup runs after the editor exits.
 
+## Attaching media
+
+`Ctrl-O` in the composer opens a picker rooted at the library's configured
+`download_dir` (`~/Downloads`). It lists folders and accepted media only, since
+nothing else can be attached, and shows each file's size. `/` switches to typing a
+path, where `Tab` completes — fully on a unique match, to the common prefix
+otherwise, reporting how many candidates matched.
+
+In external-editor mode there is no box to host `Ctrl-O`, so it asks about
+attaching after the editor exits.
+
+What the server accepts, checked locally so an oversized file is refused before a
+120-second upload rather than after:
+
+| Kind | Extensions | Limit |
+|---|---|---|
+| image | jpg, jpeg, png, gif, webp | 10 MB |
+| video | mov, mp4, m4v, webm | 100 MB |
+| audio | wav, mp3 | 50 MB |
+
+Posting with media uploads first, then creates the post. If the post fails after a
+successful upload, the media is deleted again rather than left orphaned on the
+server — the same rollback the CLI does.
+
+Comments take no media: the API has no parameter for it.
+
 ## Status
 
 Working: feed with expand-on-selection, load-more paging, idle refresh that holds
 your position, notification badge, live resize, 16-color theming that inherits the
 terminal's scheme, post detail with paged comments and comment selection, like /
 unlike, opening media in the system viewer, writing posts and comments (inline or
-`$EDITOR`), deleting your own posts and comments with confirmation, help overlay,
-error modals.
+`$EDITOR`), attaching media with a picker or a typed path, deleting your own posts
+and comments with confirmation, help overlay, error modals.
 
-Not built yet: media attach, notifications, users, profiles, settings,
-login / register.
+Not built yet: notifications, users, profiles, settings, login / register.
 
 Deletes are guarded twice: the key does nothing but explain itself unless the post
 or comment is yours, and then it asks. `ui_confirm` treats anything other than

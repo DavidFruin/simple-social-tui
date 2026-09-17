@@ -10,6 +10,7 @@
 #include "detail.h"
 #include "editor.h"
 #include "shell.h"
+#include "filepick.h"
 
 static const char *TAB_NAMES[TAB_COUNT] = {
     "Feed", "Notifs", "Users", "Me", "Settings"
@@ -118,7 +119,7 @@ static void close_post(app_t *app) {
 /* Collects text either inline or from $EDITOR, per the config. Returns 1
  * if there is something to send. */
 static int compose_text(app_t *app, const char *title, const char *send_label,
-                        char *out, size_t outsz) {
+                        char *out, size_t outsz, char *attach, size_t attach_sz) {
     if (app->cfg.compose_mode == CFG_COMPOSE_EXTERNAL) {
         app->input_active = 1;
         int rc = shell_edit_text("", out, outsz);
@@ -131,6 +132,13 @@ static int compose_text(app_t *app, const char *title, const char *send_label,
             return 0;
         }
         if (rc == 0) { app_set_status(app, "Nothing written, nothing sent."); return 0; }
+
+        /* No editor box to host ^O, so ask afterwards instead. */
+        if (attach && ui_confirm(app, "Attach a media file to this post?")) {
+            char picked[1024];
+            if (filepick_run(app, picked, sizeof(picked)))
+                snprintf(attach, attach_sz, "%s", picked);
+        }
         return 1;
     }
 
@@ -140,7 +148,7 @@ static int compose_text(app_t *app, const char *title, const char *send_label,
         return 0;
     }
 
-    int rc = editor_run(app, &ed, title, send_label);
+    int rc = editor_run(app, &ed, title, send_label, attach, attach_sz);
     if (rc != EDITOR_SUBMIT || ed.len == 0) {
         editor_free(&ed);
         if (rc == EDITOR_SUBMIT) app_set_status(app, "Empty -- nothing sent.");
@@ -154,13 +162,16 @@ static int compose_text(app_t *app, const char *title, const char *send_label,
 
 static void compose_post(app_t *app) {
     char text[5200];
-    if (!compose_text(app, "New post", "post", text, sizeof(text))) return;
-    report(app, net_create_post(app, text));
+    char attach[1024] = {0};
+    if (!compose_text(app, "New post", "post", text, sizeof(text), attach, sizeof(attach)))
+        return;
+    report(app, net_create_post(app, text, attach));
 }
 
+/* Media only attaches to posts: api_create_comment takes no media. */
 static void compose_comment(app_t *app) {
     char text[5200];
-    if (!compose_text(app, "New comment", "comment", text, sizeof(text))) return;
+    if (!compose_text(app, "New comment", "comment", text, sizeof(text), NULL, 0)) return;
     report(app, net_create_comment(app, text));
 }
 

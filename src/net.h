@@ -24,7 +24,7 @@ int net_load_more_comments(app_t *app);
 int net_toggle_like(app_t *app);
 
 /* Writes */
-int net_create_post(app_t *app, const char *text);
+int net_create_post(app_t *app, const char *text, const char *media_path);
 int net_create_comment(app_t *app, const char *text);
 int net_delete_post(app_t *app, const char *post_id);
 int net_delete_comment(app_t *app, int comment_id);

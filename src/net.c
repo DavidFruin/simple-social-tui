@@ -185,18 +185,44 @@ int net_toggle_like(app_t *app) {
 
 /* ---------- writes ---------- */
 
-int net_create_post(app_t *app, const char *text) {
+int net_create_post(app_t *app, const char *text, const char *media_path) {
     char post_id[64] = {0};
+    char media_url[512] = {0};
+    int  media_id = 0;
+
+    if (media_path && media_path[0]) {
+        const char *base = strrchr(media_path, '/');
+        base = base ? base + 1 : media_path;
+
+        /* Uploads get a 120s timeout in the library, so this is the
+         * longest the UI ever freezes. Say which file, so a long pause
+         * is explicable. */
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Uploading %s...", base);
+        announce(app, msg);
+
+        if (api_upload_media_with_id(media_path, media_url, sizeof(media_url),
+                                     &media_id) != 0) {
+            app_set_error(app, "upload failed: %s", api_get_last_error());
+            return -1;
+        }
+    }
 
     announce(app, "Posting...");
 
-    if (api_create_post(text, NULL, post_id, sizeof(post_id)) != 0) {
+    if (api_create_post(text, media_url[0] ? media_url : NULL,
+                        post_id, sizeof(post_id)) != 0) {
         app_set_error(app, "%s", api_get_last_error());
+
+        /* The upload succeeded but the post did not, so the media would
+         * be orphaned on the server. Roll it back, the way the CLI does. */
+        if (media_id > 0) api_delete_media(media_id);
         return -1;
     }
 
     /* Show it straight away rather than waiting for the idle timer. */
-    if (net_refresh_feed(app) == 0) app_set_status(app, "Posted.");
+    if (net_refresh_feed(app) == 0)
+        app_set_status(app, media_url[0] ? "Posted with media." : "Posted.");
     return 0;
 }
 
