@@ -5,6 +5,7 @@
 #include <ncurses.h>
 #include "ui.h"
 #include "timefmt.h"
+#include "detail.h"
 
 #define TAB_ROW     0
 #define RULE_ROW    1
@@ -160,9 +161,12 @@ static void draw_tabs(app_t *app) {
 }
 
 static const char *hints_for(app_t *app) {
+    if (app->view == VIEW_POST)
+        return "j/k:comments  l:like  o:open media  esc:back  ?:help  q:quit";
+
     switch (app->tab) {
         case TAB_FEED:
-            return "j/k:move  enter:more  r:refresh  1-5:tabs  ?:help  q:quit";
+            return "j/k:move  enter:open  l:like  r:refresh  1-5:tabs  ?:help  q:quit";
         default:
             return "1-5:tabs  r:refresh  ?:help  q:quit";
     }
@@ -429,6 +433,14 @@ void ui_draw(app_t *app) {
     erase();
     draw_tabs(app);
 
+    if (app->view == VIEW_POST) {
+        detail_draw(app, BODY_TOP, ui_body_height());
+        draw_status(app);
+        wnoutrefresh(stdscr);
+        doupdate();
+        return;
+    }
+
     switch (app->tab) {
         case TAB_FEED:     draw_feed(app); break;
         case TAB_NOTIFS:   draw_placeholder(app, "Notifications"); break;
@@ -484,5 +496,83 @@ void ui_modal_error(app_t *app, const char *msg) {
     delwin(win);
     app->status[0] = '\0';
     app->status_is_error = 0;
+    ui_draw(app);
+}
+
+void ui_help(app_t *app) {
+    static const char *rows[] = {
+        "Moving",
+        "  j / k, down / up      move",
+        "  ctrl-d / ctrl-u       half page",
+        "  g / G, home / end     first / last",
+        "",
+        "Feed",
+        "  enter                 open the selected post",
+        "  enter on load-more    fetch the next page",
+        "  l                     like / unlike",
+        "  r                     refresh",
+        "",
+        "Post",
+        "  j / k                 move between comments",
+        "  l                     like / unlike",
+        "  o                     open media in system viewer",
+        "  esc, backspace        back to the feed",
+        "",
+        "Tabs",
+        "  1 - 5                 jump to a tab",
+        "  tab / shift-tab       next / previous tab",
+        "",
+        "  ?                     this help",
+        "  q                     quit",
+        NULL
+    };
+
+    int n = 0;
+    int widest = 0;
+    for (; rows[n]; n++) {
+        int w = ui_utf8_width(rows[n]);
+        if (w > widest) widest = w;
+    }
+
+    int h = n + 4;
+    int w = widest + 4;
+    if (h > LINES) h = LINES;
+    if (w > COLS) w = COLS;
+
+    int top = (LINES - h) / 2;
+    int left = (COLS - w) / 2;
+    if (top < 0) top = 0;
+    if (left < 0) left = 0;
+
+    WINDOW *win = newwin(h, w, top, left);
+    if (!win) return;
+
+    box(win, 0, 0);
+    wattron(win, A_BOLD);
+    mvwaddstr(win, 0, 2, " Keys ");
+    wattroff(win, A_BOLD);
+
+    for (int i = 0; i < n && i + 2 < h - 1; i++) {
+        char buf[256];
+        ui_utf8_take(buf, sizeof(buf), rows[i], w - 4, 1);
+        /* Section headings are the lines with no leading space. */
+        int heading = rows[i][0] != ' ' && rows[i][0] != '\0';
+        if (heading) wattron(win, A_BOLD);
+        else wattron(win, A_DIM);
+        mvwaddstr(win, 1 + i, 2, buf);
+        if (heading) wattroff(win, A_BOLD);
+        else wattroff(win, A_DIM);
+    }
+
+    wattron(win, A_DIM);
+    mvwaddstr(win, h - 2, 2, "any key to close");
+    wattroff(win, A_DIM);
+
+    wrefresh(win);
+    timeout(-1);
+    getch();
+    timeout(500);
+
+    delwin(win);
     ui_draw(app);
 }

@@ -15,10 +15,17 @@ typedef enum {
     TAB_COUNT
 } tab_t;
 
+/* Screens stack one level deep: a tab, or a post opened from it. */
+typedef enum {
+    VIEW_TABS = 0,
+    VIEW_POST
+} view_t;
+
 typedef struct {
     ss_state_t state;
     tui_cfg_t  cfg;
 
+    view_t view;
     tab_t tab;
 
     post_store_t feed;
@@ -26,6 +33,15 @@ typedef struct {
     int   feed_top;          /* first post index drawn */
     int   feed_on_more;      /* cursor is parked on the "load more" row */
     time_t feed_fetched;     /* 0 = never */
+
+    /* Post detail. The post is a copy; feed_src is the feed index it came
+     * from, so a like applied here stays in step with the list behind it. */
+    api_post_t     detail;
+    int            detail_src;
+    comment_store_t comments;
+    int            comment_sel;
+    int            detail_scroll;
+    int            detail_on_more;
 
     int    unseen;           /* notification badge count */
     time_t unseen_fetched;

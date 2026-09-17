@@ -18,4 +18,9 @@ int net_refresh_feed(app_t *app);   /* replaces the feed with page 1 */
 int net_load_more_feed(app_t *app); /* appends the next page */
 int net_refresh_badge(app_t *app);  /* unseen notification count */
 
+/* Post detail */
+int net_open_post(app_t *app, const char *post_id, int feed_src);
+int net_load_more_comments(app_t *app);
+int net_toggle_like(app_t *app);
+
 #endif

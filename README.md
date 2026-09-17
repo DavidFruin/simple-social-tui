@@ -42,11 +42,22 @@ Vim-style, with arrows and page keys working too.
 | `j` / `k`, `↓` / `↑` | move the cursor; the selected post expands in place |
 | `Ctrl-d` / `Ctrl-u`, `PgDn` / `PgUp` | half-page jumps |
 | `g` / `G`, `Home` / `End` | first / last post |
-| `Enter` / `Space` | on the load-more row, fetch the next page |
+| `Enter` / `Space` | open the selected post; on the load-more row, fetch the next page |
+| `l` | like / unlike |
 | `r` | refresh the current view |
 | `1`–`5`, `Tab` / `Shift-Tab` | switch tabs |
-| `?` | help overlay (not built yet) |
+| `?` | help overlay |
 | `q` | quit |
+
+In an open post:
+
+| Key | Does |
+|---|---|
+| `j` / `k` | move between comments; above the first, scrolls the post body |
+| `Enter` / `Space` | on the load-more row, fetch the next page of comments |
+| `l` | like / unlike |
+| `o` | open the post's media in the system viewer (`xdg-open`) |
+| `Esc` / `Backspace` | back to the feed, selection preserved |
 
 ## Config
 
@@ -83,9 +94,11 @@ timers run off `getch()` waking every 500ms rather than from a signal.
 ```
 src/main.c      startup, session restore, ncurses init/teardown
 src/app.c       app state, event loop, key handling, idle timers
-src/ui.c        drawing: tab bar, feed, status line, modal, UTF-8 width/truncation
+src/ui.c        drawing: tab bar, feed, status line, modal, help, UTF-8 truncation
+src/detail.c    post detail: post, comments, selection, scrolling
 src/net.c       the blocking-fetch seam
-src/store.c     growable post list
+src/shell.c     handing the terminal to an external program, media URL building
+src/store.c     growable post and comment lists
 src/timefmt.c   relative under 24h, absolute beyond
 src/cfg.c       the config above
 ```
@@ -99,8 +112,14 @@ stack.
 
 Working: feed with expand-on-selection, load-more paging, idle refresh that holds
 your position, notification badge, live resize, 16-color theming that inherits the
-terminal's scheme.
+terminal's scheme, post detail with paged comments and comment selection, like /
+unlike, opening media in the system viewer, help overlay, error modals.
 
-Not built yet: post detail with comments, compose (inline and `$EDITOR`), media
-attach and open, notifications, users, profiles, settings, login/register, help
-overlay.
+Not built yet: compose (inline and `$EDITOR`), commenting, media attach, delete
+post / comment, notifications, users, profiles, settings, login / register.
+
+The detail view renders into a flat line list rather than walking
+variable-height items, which makes scrolling and comment selection much easier to
+get right. `src/shell.c` suspends and restores ncurses around an external program;
+the optional `$EDITOR` composer will reuse it. Note `$EDITOR` is unset in this
+environment, so that path will need a fallback chain.

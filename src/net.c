@@ -12,6 +12,13 @@ static api_posts_result_t *page_buf(void) {
     return buf;
 }
 
+/* Same for comments (~1.3 MB). */
+static api_comments_result_t *cpage_buf(void) {
+    static api_comments_result_t *buf = NULL;
+    if (!buf) buf = calloc(1, sizeof(api_comments_result_t));
+    return buf;
+}
+
 /* Paint the pending message and force it out before we block. */
 static void announce(app_t *app, const char *msg) {
     app_set_status(app, "%s", msg);
@@ -79,5 +86,99 @@ int net_refresh_badge(app_t *app) {
     if (api_get_unseen_notification_count(&count) != 0) return -1;
     app->unseen = count;
     app->unseen_fetched = time(NULL);
+    return 0;
+}
+
+/* ---------- post detail ---------- */
+
+static int fetch_comments(app_t *app, int offset, int append) {
+    api_comments_result_t *res = cpage_buf();
+    if (!res) { app_set_error(app, "out of memory"); return -1; }
+
+    announce(app, append ? "Loading more comments..." : "Loading comments...");
+
+    memset(res, 0, sizeof(*res));
+    if (api_get_post_comments(app->detail.id, offset, app->cfg.page_size, res) != 0) {
+        app_set_error(app, "%s", api_get_last_error());
+        return -1;
+    }
+
+    if (!append) cstore_clear(&app->comments);
+    if (cstore_append(&app->comments, res->comments, res->count) != 0) {
+        app_set_error(app, "out of memory");
+        return -1;
+    }
+
+    app->comments.has_more = res->has_more;
+    app->comments.total_count = res->total_count;
+    return 0;
+}
+
+int net_open_post(app_t *app, const char *post_id, int feed_src) {
+    api_post_t post;
+
+    announce(app, "Loading post...");
+
+    memset(&post, 0, sizeof(post));
+    if (api_get_post_by_id(post_id, &post) != 0) {
+        app_set_error(app, "%s", api_get_last_error());
+        return -1;
+    }
+
+    app->detail = post;
+    app->detail_src = feed_src;
+    app->detail_scroll = 0;
+    app->comment_sel = 0;
+    app->detail_on_more = 0;
+
+    if (fetch_comments(app, 0, 0) != 0) return -1;
+
+    app->view = VIEW_POST;
+    if (app->comments.total_count > 0)
+        app_set_status(app, "%d comments.", app->comments.total_count);
+    else
+        app_set_status(app, "No comments yet.");
+    return 0;
+}
+
+int net_load_more_comments(app_t *app) {
+    if (!app->comments.has_more) {
+        app_set_status(app, "No more comments.");
+        return 0;
+    }
+    int before = app->comments.count;
+    if (fetch_comments(app, app->comments.count, 1) != 0) return -1;
+    app_set_status(app, "Loaded %d more (%d of %d).",
+                   app->comments.count - before,
+                   app->comments.count, app->comments.total_count);
+    return 0;
+}
+
+/* Toggled locally rather than re-fetching the post: it is one field, and
+ * the next refresh reconciles with the server anyway. */
+int net_toggle_like(app_t *app) {
+    api_post_t *p = &app->detail;
+    int liking = !p->is_liked;
+
+    announce(app, liking ? "Liking..." : "Unliking...");
+
+    int rc = liking ? api_like_post(p->id) : api_unlike_post(p->id);
+    if (rc != 0) {
+        app_set_error(app, "%s", api_get_last_error());
+        return -1;
+    }
+
+    p->is_liked = liking;
+    p->like_count += liking ? 1 : -1;
+    if (p->like_count < 0) p->like_count = 0;
+
+    /* Keep the feed row behind this view in step. */
+    if (app->detail_src >= 0 && app->detail_src < app->feed.count &&
+        strcmp(app->feed.posts[app->detail_src].id, p->id) == 0) {
+        app->feed.posts[app->detail_src].is_liked = p->is_liked;
+        app->feed.posts[app->detail_src].like_count = p->like_count;
+    }
+
+    app_set_status(app, liking ? "Liked." : "Unliked.");
     return 0;
 }

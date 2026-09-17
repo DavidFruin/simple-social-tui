@@ -18,6 +18,7 @@ void ui_teardown(void);
 
 void ui_draw(app_t *app);
 void ui_modal_error(app_t *app, const char *msg);
+void ui_help(app_t *app);
 
 /* Rows available to the body between the tab bar and the status line. */
 int  ui_body_height(void);

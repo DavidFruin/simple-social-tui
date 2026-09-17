@@ -7,6 +7,7 @@
 #include "ui.h"
 #include "net.h"
 #include "ss_api.h"
+#include "detail.h"
 
 static const char *TAB_NAMES[TAB_COUNT] = {
     "Feed", "Notifs", "Users", "Me", "Settings"
@@ -22,12 +23,16 @@ int app_init(app_t *app) {
     ss_state_init(&app->state);
     tui_cfg_load(&app->cfg);
     store_init(&app->feed);
+    cstore_init(&app->comments);
     app->tab = TAB_FEED;
+    app->view = VIEW_TABS;
+    app->detail_src = -1;
     return 0;
 }
 
 void app_free(app_t *app) {
     store_free(&app->feed);
+    cstore_free(&app->comments);
 }
 
 void app_set_status(app_t *app, const char *fmt, ...) {
@@ -74,6 +79,38 @@ static void feed_page(app_t *app, int dir) {
     int step = ui_body_height() / 2;
     if (step < 1) step = 1;
     feed_move(app, dir * step);
+}
+
+/* Liking from the feed reuses net_toggle_like by pointing the detail slot
+ * at the selected row first, so both copies stay in step. */
+static void feed_like(app_t *app) {
+    if (app->feed.count == 0 || app->feed_on_more) return;
+    api_post_t saved = app->detail;
+    int saved_src = app->detail_src;
+
+    app->detail = app->feed.posts[app->feed_sel];
+    app->detail_src = app->feed_sel;
+
+    int rc = net_toggle_like(app);
+
+    if (rc == 0) app->feed.posts[app->feed_sel] = app->detail;
+
+    /* Restore whatever the detail view was holding. */
+    app->detail = saved;
+    app->detail_src = saved_src;
+
+    if (rc != 0 && app->status_is_error) ui_modal_error(app, app->status);
+}
+
+static void open_selected_post(app_t *app) {
+    if (app->feed.count == 0 || app->feed_on_more) return;
+    int rc = net_open_post(app, app->feed.posts[app->feed_sel].id, app->feed_sel);
+    if (rc != 0 && app->status_is_error) ui_modal_error(app, app->status);
+}
+
+static void close_post(app_t *app) {
+    app->view = VIEW_TABS;
+    app->status[0] = '\0';
 }
 
 static void switch_tab(app_t *app, tab_t t) {
@@ -129,6 +166,60 @@ void app_run(app_t *app) {
         /* Any keypress clears a stale status message so hints return. */
         if (app->status[0] && !app->status_is_error) app->status[0] = '\0';
 
+        /* The post view owns most keys while it is open. */
+        if (app->view == VIEW_POST) {
+            switch (ch) {
+                case KEY_RESIZE: break;
+
+                case 27:            /* esc */
+                case KEY_BACKSPACE:
+                case 127: case 8:
+                    close_post(app);
+                    continue;
+
+                case 'q':
+                    app->quit = 1;
+                    continue;
+
+                case 'j': case KEY_DOWN:  detail_move_selection(app, 1);  continue;
+                case 'k': case KEY_UP:    detail_move_selection(app, -1); continue;
+
+                case KEY_NPAGE: case 4:
+                    detail_scroll_by(app, ui_body_height() / 2);  continue;
+                case KEY_PPAGE: case 21:
+                    detail_scroll_by(app, -(ui_body_height() / 2)); continue;
+
+                case 'g': case KEY_HOME:
+                    app->detail_scroll = 0; app->comment_sel = 0;
+                    app->detail_on_more = 0; continue;
+
+                case 'l':
+                    report(app, net_toggle_like(app));
+                    if (app->detail_src >= 0 && app->detail_src < app->feed.count &&
+                        strcmp(app->feed.posts[app->detail_src].id, app->detail.id) == 0)
+                        app->feed.posts[app->detail_src] = app->detail;
+                    continue;
+
+                case 'o':
+                    report(app, detail_open_media(app));
+                    continue;
+
+                case '\r': case '\n': case KEY_ENTER: case ' ':
+                    if (app->detail_on_more) {
+                        report(app, net_load_more_comments(app));
+                        app->detail_on_more = 0;
+                    }
+                    continue;
+
+                case '?':
+                    ui_help(app);
+                    continue;
+
+                default:
+                    continue;
+            }
+        }
+
         switch (ch) {
             case KEY_RESIZE:
                 /* ncurses has already resized; the next draw re-lays out. */
@@ -157,11 +248,18 @@ void app_run(app_t *app) {
                 break;
 
             case '\r': case '\n': case KEY_ENTER: case ' ':
-                if (app->tab == TAB_FEED && app->feed_on_more) {
+                if (app->tab != TAB_FEED) break;
+                if (app->feed_on_more) {
                     report(app, net_load_more_feed(app));
                     app->feed_on_more = 0;
                     if (app->feed.count) app->feed_sel = app->feed.count - 1;
+                } else {
+                    open_selected_post(app);
                 }
+                break;
+
+            case 'l':
+                if (app->tab == TAB_FEED) feed_like(app);
                 break;
 
             case '1': switch_tab(app, TAB_FEED);     break;
@@ -178,7 +276,7 @@ void app_run(app_t *app) {
                 break;
 
             case '?':
-                app_set_status(app, "Help overlay lands with the next chunk.");
+                ui_help(app);
                 break;
 
             default:

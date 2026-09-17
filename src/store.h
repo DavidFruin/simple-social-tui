@@ -23,4 +23,19 @@ void store_free(post_store_t *s);
 void store_clear(post_store_t *s);
 int  store_append(post_store_t *s, const api_post_t *src, int n);
 
+/* Same treatment for comments: api_comments_result_t is a fixed
+ * api_comment_t[256], also carrying 5000-byte text buffers. */
+typedef struct {
+    api_comment_t *comments;
+    int count;
+    int cap;
+    int has_more;
+    int total_count;
+} comment_store_t;
+
+void cstore_init(comment_store_t *s);
+void cstore_free(comment_store_t *s);
+void cstore_clear(comment_store_t *s);
+int  cstore_append(comment_store_t *s, const api_comment_t *src, int n);
+
 #endif
