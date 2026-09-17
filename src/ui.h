@@ -27,6 +27,11 @@ int  ui_confirm(app_t *app, const char *question);
 /* Rows available to the body between the tab bar and the status line. */
 int  ui_body_height(void);
 
+/* Draws a scrollable post list with the selection expanded in place.
+ * Shared by the feed and a profile's posts. */
+void ui_draw_post_list(post_list_t *pl, int body_top, int bottom,
+                       const char *empty_msg, const char *end_label);
+
 /* Copies at most max_cols display columns of UTF-8 from src, never
  * splitting a multibyte character, appending an ellipsis if it cut. */
 void ui_utf8_take(char *dst, size_t dstsz, const char *src, int max_cols, int ellipsis);

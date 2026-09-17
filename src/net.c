@@ -47,22 +47,22 @@ static int fetch_page(app_t *app, int offset, int append) {
         return -1;
     }
 
-    if (!append) store_clear(&app->feed);
-    if (store_append(&app->feed, res->posts, res->count) != 0) {
+    if (!append) store_clear(&app->feed.store);
+    if (store_append(&app->feed.store, res->posts, res->count) != 0) {
         app_set_error(app, "out of memory");
         return -1;
     }
 
-    app->feed.has_more = res->has_more;
-    app->feed.total_count = res->total_count;
-    app->feed_fetched = time(NULL);
+    app->feed.store.has_more = res->has_more;
+    app->feed.store.total_count = res->total_count;
+    app->feed.fetched = time(NULL);
 
-    if (app->feed.count == 0) {
+    if (app->feed.store.count == 0) {
         app_set_status(app, "Nothing in your feed yet.");
     } else if (append) {
-        app_set_status(app, "Loaded %d more (%d shown).", res->count, app->feed.count);
+        app_set_status(app, "Loaded %d more (%d shown).", res->count, app->feed.store.count);
     } else {
-        app_set_status(app, "%d posts.", app->feed.count);
+        app_set_status(app, "%d posts.", app->feed.store.count);
     }
     return 0;
 }
@@ -70,19 +70,19 @@ static int fetch_page(app_t *app, int offset, int append) {
 int net_refresh_feed(app_t *app) {
     int rc = fetch_page(app, 0, 0);
     if (rc == 0) {
-        app->feed_sel = 0;
-        app->feed_top = 0;
-        app->feed_on_more = 0;
+        app->feed.sel = 0;
+        app->feed.top = 0;
+        app->feed.on_more = 0;
     }
     return rc;
 }
 
 int net_load_more_feed(app_t *app) {
-    if (!app->feed.has_more) {
+    if (!app->feed.store.has_more) {
         app_set_status(app, "No more posts.");
         return 0;
     }
-    return fetch_page(app, app->feed.count, 1);
+    return fetch_page(app, app->feed.store.count, 1);
 }
 
 int net_refresh_badge(app_t *app) {
@@ -179,10 +179,10 @@ int net_toggle_like(app_t *app) {
     if (p->like_count < 0) p->like_count = 0;
 
     /* Keep the feed row behind this view in step. */
-    if (app->detail_src >= 0 && app->detail_src < app->feed.count &&
-        strcmp(app->feed.posts[app->detail_src].id, p->id) == 0) {
-        app->feed.posts[app->detail_src].is_liked = p->is_liked;
-        app->feed.posts[app->detail_src].like_count = p->like_count;
+    if (app->detail_src >= 0 && app->detail_src < app->feed.store.count &&
+        strcmp(app->feed.store.posts[app->detail_src].id, p->id) == 0) {
+        app->feed.store.posts[app->detail_src].is_liked = p->is_liked;
+        app->feed.store.posts[app->detail_src].like_count = p->like_count;
     }
 
     app_set_status(app, liking ? "Liked." : "Unliked.");
@@ -346,5 +346,195 @@ int net_load_more_notifs(app_t *app) {
     if (fetch_notifs(app, app->notifs.count, 1) != 0) return -1;
     app_set_status(app, "Loaded %d more (%d shown).",
                    app->notifs.count - before, app->notifs.count);
+    return 0;
+}
+
+/* ---------- users and profiles ---------- */
+
+/* api_users_result_t is a fixed api_user_t[256] -- small enough to keep
+ * around, but still heap so it never lands on the stack. */
+static api_users_result_t *users_buf(api_users_result_t **slot) {
+    if (!*slot) *slot = calloc(1, sizeof(api_users_result_t));
+    return *slot;
+}
+
+int net_refresh_users(app_t *app) {
+    api_users_result_t *all = users_buf(&app->users);
+    api_users_result_t *mine = users_buf(&app->my_follows);
+    if (!all || !mine) { app_set_error(app, "out of memory"); return -1; }
+
+    announce(app, "Loading users...");
+
+    memset(all, 0, sizeof(*all));
+    if (api_get_users(all) != 0) {
+        app_set_error(app, "%s", api_get_last_error());
+        return -1;
+    }
+
+    /* One extra call, so each row can show whether I follow them without
+     * an isFollowing call per user. */
+    memset(mine, 0, sizeof(*mine));
+    api_get_my_follows(app->state.user.user_id, mine);
+
+    app->users_fetched = time(NULL);
+    if (app->users_sel >= all->count) app->users_sel = all->count ? all->count - 1 : 0;
+
+    app_set_status(app, "%d users.", all->count);
+    return 0;
+}
+
+static int fetch_profile_posts(app_t *app, int offset, int append) {
+    api_posts_result_t *res = page_buf();
+    if (!res) { app_set_error(app, "out of memory"); return -1; }
+
+    announce(app, append ? "Loading more..." : "Loading posts...");
+
+    memset(res, 0, sizeof(*res));
+
+    int rc;
+    if (app->profile_id == app->state.user.user_id)
+        rc = api_get_my_posts(offset, app->cfg.page_size, res);
+    else
+        rc = api_get_user_posts(app->profile_id, offset, app->cfg.page_size, res);
+
+    if (rc != 0) {
+        app_set_error(app, "%s", api_get_last_error());
+        return -1;
+    }
+
+    if (!append) store_clear(&app->profile_posts.store);
+    if (store_append(&app->profile_posts.store, res->posts, res->count) != 0) {
+        app_set_error(app, "out of memory");
+        return -1;
+    }
+
+    app->profile_posts.store.has_more = res->has_more;
+    app->profile_posts.store.total_count = res->total_count;
+    app->profile_posts.fetched = time(NULL);
+    return 0;
+}
+
+int net_open_profile(app_t *app, int user_id) {
+    announce(app, "Loading profile...");
+
+    char email[256] = {0}, created[32] = {0};
+
+    if (user_id == app->state.user.user_id) {
+        snprintf(email, sizeof(email), "%s", app->state.user.email);
+        snprintf(created, sizeof(created), "%s", app->state.user.created_at);
+    } else if (api_get_user_info(user_id, email, sizeof(email),
+                                 created, sizeof(created)) != 0) {
+        app_set_error(app, "%s", api_get_last_error());
+        return -1;
+    }
+
+    app->profile_id = user_id;
+    snprintf(app->profile_email, sizeof(app->profile_email), "%s", email);
+    snprintf(app->profile_created, sizeof(app->profile_created), "%s", created);
+
+    app->profile_posts.sel = 0;
+    app->profile_posts.top = 0;
+    app->profile_posts.on_more = 0;
+
+    /* Counts for the header. Failures here are not worth abandoning the
+     * profile over, so they just leave a zero. */
+    api_users_result_t follows, followers;
+    memset(&follows, 0, sizeof(follows));
+    memset(&followers, 0, sizeof(followers));
+
+    app->profile_follows = 0;
+    app->profile_followers = 0;
+    if (api_get_my_follows(user_id, &follows) == 0) app->profile_follows = follows.count;
+    if (api_get_my_followers(user_id, &followers) == 0) app->profile_followers = followers.count;
+
+    app->profile_is_following = 0;
+    if (user_id != app->state.user.user_id) {
+        int f = 0;
+        if (api_is_following(user_id, &f) == 0) app->profile_is_following = f;
+    }
+
+    if (fetch_profile_posts(app, 0, 0) != 0) return -1;
+
+    app_set_status(app, "%d posts.", app->profile_posts.store.total_count);
+    return 0;
+}
+
+int net_load_more_profile_posts(app_t *app) {
+    if (!app->profile_posts.store.has_more) {
+        app_set_status(app, "No more posts.");
+        return 0;
+    }
+    int before = app->profile_posts.store.count;
+    if (fetch_profile_posts(app, app->profile_posts.store.count, 1) != 0) return -1;
+    app_set_status(app, "Loaded %d more (%d of %d).",
+                   app->profile_posts.store.count - before,
+                   app->profile_posts.store.count,
+                   app->profile_posts.store.total_count);
+    return 0;
+}
+
+int net_toggle_follow(app_t *app) {
+    if (app->profile_id == app->state.user.user_id) {
+        app_set_status(app, "You cannot follow yourself.");
+        return 0;
+    }
+
+    int following = !app->profile_is_following;
+
+    announce(app, following ? "Following..." : "Unfollowing...");
+
+    int rc = following ? api_follow_user(app->profile_id)
+                       : api_unfollow_user(app->profile_id);
+    if (rc != 0) {
+        app_set_error(app, "%s", api_get_last_error());
+        return -1;
+    }
+
+    app->profile_is_following = following;
+    app->profile_followers += following ? 1 : -1;
+    if (app->profile_followers < 0) app->profile_followers = 0;
+
+    /* The users tab shows follow state, and the feed is followed posts,
+     * so both are now out of date. */
+    app->users_fetched = 0;
+    app->feed.fetched = 0;
+
+    app_set_status(app, following ? "Following %s." : "Unfollowed %s.",
+                   app->profile_email);
+    return 0;
+}
+
+int net_open_user_list(app_t *app, int owner_id, list_kind_t kind) {
+    api_users_result_t *lst = users_buf(&app->list_users);
+    if (!lst) { app_set_error(app, "out of memory"); return -1; }
+
+    announce(app, kind == LIST_FOLLOWS ? "Loading follows..." : "Loading followers...");
+
+    memset(lst, 0, sizeof(*lst));
+    int rc = (kind == LIST_FOLLOWS) ? api_get_my_follows(owner_id, lst)
+                                    : api_get_my_followers(owner_id, lst);
+    if (rc != 0) {
+        app_set_error(app, "%s", api_get_last_error());
+        return -1;
+    }
+
+    app->list_kind = kind;
+    app->list_owner = owner_id;
+    app->list_sel = 0;
+    app->list_top = 0;
+
+    /* LIST_FOLLOWS is who they follow; LIST_FOLLOWERS is who follows them.
+     * Spelled out, because "follows" alone reads both ways. */
+    int self = (owner_id == app->state.user.user_id);
+    if (self)
+        snprintf(app->list_title, sizeof(app->list_title), "%s",
+                 kind == LIST_FOLLOWS ? "People you follow" : "People following you");
+    else
+        snprintf(app->list_title, sizeof(app->list_title),
+                 kind == LIST_FOLLOWS ? "People %.60s follows" : "People following %.60s",
+                 app->profile_email);
+
+    app_set_status(app, "%d %s.", lst->count,
+                   kind == LIST_FOLLOWS ? "follows" : "followers");
     return 0;
 }

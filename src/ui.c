@@ -164,11 +164,21 @@ static const char *hints_for(app_t *app) {
     if (app->view == VIEW_POST)
         return "j/k:comments  c:comment  l:like  o:media  d/D:del  esc:back  ?:help";
 
+    if (app->view == VIEW_PROFILE)
+        return "j/k:posts  enter:open  f:follow  w/W:follows  esc:back  ?:help";
+
+    if (app->view == VIEW_USERLIST)
+        return "j/k:move  enter:profile  esc:back  ?:help  q:quit";
+
     switch (app->tab) {
         case TAB_FEED:
             return "j/k:move  enter:open  c:post  l:like  r:refresh  ?:help  q:quit";
         case TAB_NOTIFS:
             return "j/k:move  enter:open post  r:refresh  1-5:tabs  ?:help  q:quit";
+        case TAB_USERS:
+            return "j/k:move  enter:profile  r:refresh  1-5:tabs  ?:help  q:quit";
+        case TAB_ME:
+            return "j/k:posts  enter:open  w/W:follows  r:refresh  ?:help  q:quit";
         default:
             return "1-5:tabs  r:refresh  ?:help  q:quit";
     }
@@ -251,36 +261,36 @@ static int wrap_text(const char *text, int width, char lines[][512], int max_lin
 
 #define MAX_WRAP 64
 
-static int post_height(app_t *app, int idx, int width) {
-    if (idx != app->feed_sel) return 1;
+static int post_height(post_list_t *pl, int idx, int width) {
+    if (idx != pl->sel) return 1;
     int body_w = width - 2;
     if (body_w < 8) body_w = 8;
-    int n = wrap_text(app->feed.posts[idx].text, body_w, NULL, MAX_WRAP);
+    int n = wrap_text(pl->store.posts[idx].text, body_w, NULL, MAX_WRAP);
     return 1 /*header*/ + n + 1 /*meta*/ + 1 /*spacer*/;
 }
 
 /* Scroll feed_top just far enough that the cursor is fully on screen.
  * When the cursor is parked on the load-more row, that row has to be
  * visible too -- otherwise moving onto it looks like nothing happened. */
-static void ensure_visible(app_t *app, int body_h) {
-    if (app->feed.count == 0) { app->feed_top = 0; return; }
+static void ensure_visible(post_list_t *pl, int body_h) {
+    if (pl->store.count == 0) { pl->top = 0; return; }
 
-    int target = app->feed_on_more ? app->feed.count - 1 : app->feed_sel;
-    int extra  = app->feed_on_more ? 1 : 0;
+    int target = pl->on_more ? pl->store.count - 1 : pl->sel;
+    int extra  = pl->on_more ? 1 : 0;
 
-    if (target < app->feed_top) app->feed_top = target;
+    if (target < pl->top) pl->top = target;
 
     for (;;) {
         int used = extra;
-        for (int i = app->feed_top; i <= target && i < app->feed.count; i++)
-            used += post_height(app, i, COLS);
-        if (used <= body_h || app->feed_top >= target) break;
-        app->feed_top++;
+        for (int i = pl->top; i <= target && i < pl->store.count; i++)
+            used += post_height(pl, i, COLS);
+        if (used <= body_h || pl->top >= target) break;
+        pl->top++;
     }
 }
 
-static void draw_collapsed(app_t *app, int row, int idx) {
-    api_post_t *p = &app->feed.posts[idx];
+static void draw_collapsed(post_list_t *pl, int row, int idx) {
+    api_post_t *p = &pl->store.posts[idx];
 
     char when[32];
     timefmt_short(p->timestamp, when, sizeof(when));
@@ -321,8 +331,8 @@ static void draw_collapsed(app_t *app, int row, int idx) {
     attroff(A_DIM);
 }
 
-static int draw_expanded(app_t *app, int row, int idx, int bottom) {
-    api_post_t *p = &app->feed.posts[idx];
+static int draw_expanded(post_list_t *pl, int row, int idx, int bottom) {
+    api_post_t *p = &pl->store.posts[idx];
     int body_w = COLS - 2;
     if (body_w < 8) body_w = 8;
 
@@ -379,48 +389,51 @@ static int draw_expanded(app_t *app, int row, int idx, int bottom) {
     return row;
 }
 
-static void draw_feed(app_t *app) {
-    int bottom = LINES - 2;
-
-    if (app->feed.count == 0) {
+void ui_draw_post_list(post_list_t *pl, int body_top, int bottom, const char *empty_msg,
+                       const char *end_label) {
+    if (pl->store.count == 0) {
         attron(A_DIM);
-        mvaddstr(BODY_TOP + 1, 2,
-                 app->feed_fetched ? "Feed is empty." : "Press r to load your feed.");
+        mvaddstr(body_top + 1, 2, empty_msg);
         attroff(A_DIM);
         return;
     }
 
-    ensure_visible(app, ui_body_height());
+    ensure_visible(pl, bottom - body_top + 1);
 
-    int row = BODY_TOP;
-    for (int i = app->feed_top; i < app->feed.count && row <= bottom; i++) {
-        if (i == app->feed_sel) {
-            row = draw_expanded(app, row, i, bottom);
+    int row = body_top;
+    for (int i = pl->top; i < pl->store.count && row <= bottom; i++) {
+        if (i == pl->sel) {
+            row = draw_expanded(pl, row, i, bottom);
         } else {
-            draw_collapsed(app, row, i);
+            draw_collapsed(pl, row, i);
             row++;
         }
     }
 
-    /* load-more affordance */
     if (row <= bottom) {
         char more[128];
-        if (app->feed.has_more)
+        if (pl->store.has_more)
             snprintf(more, sizeof(more), "-- load more (%d of %d) --",
-                     app->feed.count, app->feed.total_count);
+                     pl->store.count, pl->store.total_count);
         else
-            snprintf(more, sizeof(more), "-- end of feed (%d) --", app->feed.count);
+            snprintf(more, sizeof(more), "-- %s (%d) --", end_label, pl->store.count);
 
         int w = ui_utf8_width(more);
         int x = (COLS - w) / 2;
         if (x < 0) x = 0;
 
-        if (app->feed_on_more && app->feed.has_more) attron(A_REVERSE | A_BOLD);
+        if (pl->on_more && pl->store.has_more) attron(A_REVERSE | A_BOLD);
         else attron(A_DIM);
         mvaddstr(row, x, more);
-        if (app->feed_on_more && app->feed.has_more) attroff(A_REVERSE | A_BOLD);
+        if (pl->on_more && pl->store.has_more) attroff(A_REVERSE | A_BOLD);
         else attroff(A_DIM);
     }
+}
+
+static void draw_feed(app_t *app) {
+    ui_draw_post_list(&app->feed, BODY_TOP, LINES - 2,
+                      app->feed.fetched ? "Feed is empty." : "Press r to load your feed.",
+                      "end of feed");
 }
 
 /* The five types api.php writes. */
@@ -525,6 +538,127 @@ static void draw_notifs(app_t *app) {
     }
 }
 
+/* ---------- users ---------- */
+
+static void draw_user_row(int row, const api_user_t *u, int selected, int followed,
+                          int is_me) {
+    char when[32];
+    timefmt_short(u->created_at, when, sizeof(when));
+    int when_w = ui_utf8_width(when);
+
+    const char *tag = is_me ? "you" : (followed ? "following" : "");
+    int tag_w = ui_utf8_width(tag);
+
+    int email_w = COLS - 4 - tag_w - when_w - 3;
+    if (email_w < 8) email_w = 8;
+
+    char email[288];
+    ui_utf8_take(email, sizeof(email), u->email, email_w, 1);
+
+    if (selected) { attron(A_REVERSE); mvhline(row, 0, ' ', COLS); }
+
+    if (!selected) attron(COLOR_PAIR(CP_AUTHOR));
+    mvaddstr(row, 2, email);
+    if (!selected) attroff(COLOR_PAIR(CP_AUTHOR));
+
+    if (tag[0]) {
+        int x = COLS - when_w - tag_w - 3;
+        if (x > 2 + ui_utf8_width(email)) {
+            if (!selected) attron(COLOR_PAIR(CP_LIKED));
+            mvaddstr(row, x, tag);
+            if (!selected) attroff(COLOR_PAIR(CP_LIKED));
+        }
+    }
+
+    if (!selected) attron(A_DIM);
+    mvaddstr(row, COLS - when_w - 1, when);
+    if (!selected) attroff(A_DIM);
+
+    if (selected) attroff(A_REVERSE);
+}
+
+/* Shared scroll + draw for the users tab and a pushed follows list. */
+static void draw_user_list(app_t *app, api_users_result_t *lst, int sel, int *top,
+                           const char *empty_msg, int body_top) {
+    int bottom = LINES - 2;
+
+    if (!lst || lst->count == 0) {
+        attron(A_DIM);
+        mvaddstr(body_top + 1, 2, empty_msg);
+        attroff(A_DIM);
+        return;
+    }
+
+    int rows = bottom - body_top + 1;
+    if (rows < 1) rows = 1;
+
+    if (sel < *top) *top = sel;
+    if (sel >= *top + rows) *top = sel - rows + 1;
+    if (*top < 0) *top = 0;
+
+    int row = body_top;
+    for (int i = *top; i < lst->count && row <= bottom; i++, row++) {
+        api_user_t *u = &lst->users[i];
+        draw_user_row(row, u, i == sel,
+                      app_follows(app, u->id),
+                      u->id == app->state.user.user_id);
+    }
+}
+
+static void draw_users(app_t *app) {
+    draw_user_list(app, app->users, app->users_sel, &app->users_top,
+                   app->users_fetched ? "No users." : "Press r to load the user list.",
+                   BODY_TOP);
+}
+
+/* ---------- profile ---------- */
+
+static void draw_profile(app_t *app) {
+    int row = BODY_TOP;
+
+    char email[288];
+    ui_utf8_take(email, sizeof(email), app->profile_email, COLS - 4, 1);
+    attron(COLOR_PAIR(CP_AUTHOR) | A_BOLD);
+    mvaddstr(row, 1, email);
+    attroff(COLOR_PAIR(CP_AUTHOR) | A_BOLD);
+    row++;
+
+    char joined[64];
+    timefmt_full(app->profile_created, joined, sizeof(joined));
+
+    attron(A_DIM);
+    mvprintw(row, 1, "joined %s", joined);
+    attroff(A_DIM);
+
+    if (app->profile_id == app->state.user.user_id) {
+        attron(A_DIM);
+        mvaddstr(row, COLS - 4, "you");
+        attroff(A_DIM);
+    } else if (app->profile_is_following) {
+        attron(COLOR_PAIR(CP_LIKED) | A_BOLD);
+        mvaddstr(row, COLS - 11, "following");
+        attroff(COLOR_PAIR(CP_LIKED) | A_BOLD);
+    }
+    row++;
+
+    int nposts = app->profile_posts.store.total_count;
+    attron(A_DIM);
+    mvprintw(row, 1, "%d following   %d %s   %d %s",
+             app->profile_follows,
+             app->profile_followers, app->profile_followers == 1 ? "follower" : "followers",
+             nposts, nposts == 1 ? "post" : "posts");
+    attroff(A_DIM);
+    row++;
+
+    attron(A_DIM);
+    mvhline(row, 0, ACS_HLINE, COLS);
+    attroff(A_DIM);
+    row++;
+
+    ui_draw_post_list(&app->profile_posts, row, LINES - 2,
+                      "No posts yet.", "end");
+}
+
 static void draw_placeholder(app_t *app, const char *what) {
     attron(A_DIM);
     mvprintw(BODY_TOP + 1, 2, "%s is not built yet.", what);
@@ -545,11 +679,37 @@ void ui_draw(app_t *app) {
         return;
     }
 
+    if (app->view == VIEW_PROFILE) {
+        draw_profile(app);
+        draw_status(app);
+        wnoutrefresh(stdscr);
+        doupdate();
+        return;
+    }
+
+    if (app->view == VIEW_USERLIST) {
+        attron(A_BOLD);
+        char t[128];
+        ui_utf8_take(t, sizeof(t), app->list_title, COLS - 2, 1);
+        mvaddstr(BODY_TOP, 1, t);
+        attroff(A_BOLD);
+        attron(A_DIM);
+        mvhline(BODY_TOP + 1, 0, ACS_HLINE, COLS);
+        attroff(A_DIM);
+
+        draw_user_list(app, app->list_users, app->list_sel, &app->list_top,
+                       "Nobody here.", BODY_TOP + 2);
+        draw_status(app);
+        wnoutrefresh(stdscr);
+        doupdate();
+        return;
+    }
+
     switch (app->tab) {
         case TAB_FEED:     draw_feed(app); break;
         case TAB_NOTIFS:   draw_notifs(app); break;
-        case TAB_USERS:    draw_placeholder(app, "Users"); break;
-        case TAB_ME:       draw_placeholder(app, "Your profile"); break;
+        case TAB_USERS:    draw_users(app); break;
+        case TAB_ME:       draw_profile(app); break;
         case TAB_SETTINGS: draw_placeholder(app, "Settings"); break;
         default: break;
     }
@@ -636,6 +796,11 @@ void ui_help(app_t *app) {
         "Notifications",
         "  enter                 open the post it refers to",
         "  r                     refresh",
+        "",
+        "Users and profiles",
+        "  enter                 open a profile / a post",
+        "  f                     follow or unfollow",
+        "  w / W                 who they follow / who follows them",
         "",
         "Tabs",
         "  1 - 5                 jump to a tab",

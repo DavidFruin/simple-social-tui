@@ -34,4 +34,11 @@ int net_reload_comments(app_t *app);
 int net_refresh_notifs(app_t *app);
 int net_load_more_notifs(app_t *app);
 
+/* Users and profiles */
+int net_refresh_users(app_t *app);
+int net_open_profile(app_t *app, int user_id);
+int net_load_more_profile_posts(app_t *app);
+int net_toggle_follow(app_t *app);
+int net_open_user_list(app_t *app, int owner_id, list_kind_t kind);
+
 #endif

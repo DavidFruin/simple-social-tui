@@ -50,6 +50,25 @@ Vim-style, with arrows and page keys working too.
 | `?` | help overlay |
 | `q` | quit |
 
+In the users tab:
+
+| Key | Does |
+|---|---|
+| `j` / `k`, `g` / `G` | move |
+| `Enter` | open that person's profile |
+| `r` | refresh |
+
+In a profile (and the Me tab):
+
+| Key | Does |
+|---|---|
+| `j` / `k` | move through their posts |
+| `Enter` | open the selected post |
+| `f` | follow or unfollow (not on your own profile) |
+| `w` | people they follow |
+| `W` | people following them |
+| `Esc` | back |
+
 In the notifications tab:
 
 | Key | Does |
@@ -164,6 +183,23 @@ arguments (`code -w`), with the path passed as `"$1"` rather than interpolated.
 If the TUI is killed outright while the editor is open, its temp file in `/tmp` is
 left behind — the cleanup runs after the editor exits.
 
+## Screens
+
+Tabs are the top level; posts, profiles and follows lists push on top of whatever
+opened them, and `Esc` walks back. Frames carry enough to rebuild what they return
+to, because opening a profile from a follows list overwrites the profile state
+behind it — so popping back re-fetches rather than showing stale fields.
+
+The feed and a profile's posts are the same list over different data, so they share
+`post_list_t` and one renderer. The users tab and a follows list likewise share one.
+
+The user list marks who you follow from a single `getMyFollows` call rather than an
+`isFollowing` call per row.
+
+`getMyFollows` and `getMyFollowers` return the literal string `"Unknown"` as the
+timestamp for relationships predating the server's tracking, so those render blank
+rather than as a date.
+
 ## Notifications
 
 Opening the tab is what marks them seen, so the badge clears on arrival. The unseen
@@ -213,7 +249,7 @@ unlike, opening media in the system viewer, writing posts and comments (inline o
 `$EDITOR`), attaching media with a picker or a typed path, deleting your own posts
 and comments with confirmation, help overlay, error modals.
 
-Not built yet: users, profiles, settings, login / register.
+Not built yet: settings, login / register.
 
 Deletes are guarded twice: the key does nothing but explain itself unless the post
 or comment is yours, and then it asks. `ui_confirm` treats anything other than

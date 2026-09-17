@@ -21,13 +21,49 @@ const char *app_tab_name(tab_t t) {
     return TAB_NAMES[t];
 }
 
+/* ---------- screen stack ---------- */
+
+/* Frames remember what to rebuild, because opening a profile from a
+ * follows list overwrites the profile state behind it. */
+void app_push(app_t *app, view_t view) {
+    if (app->depth >= VIEW_STACK_MAX) return;
+    frame_t *f = &app->stack[app->depth++];
+    f->view = app->view;
+    f->profile_id = app->profile_id;
+    f->list_kind = app->list_kind;
+    f->list_owner = app->list_owner;
+    app->view = view;
+}
+
+void app_pop(app_t *app) {
+    if (app->depth <= 0) { app->view = VIEW_TABS; return; }
+
+    frame_t *f = &app->stack[--app->depth];
+    app->view = f->view;
+    app->status[0] = '\0';
+
+    /* Rebuild whatever the frame was showing. */
+    if (f->view == VIEW_PROFILE && f->profile_id != app->profile_id)
+        net_open_profile(app, f->profile_id);
+    else if (f->view == VIEW_USERLIST)
+        net_open_user_list(app, f->list_owner, f->list_kind);
+}
+
+int app_follows(app_t *app, int id) {
+    if (!app->my_follows) return 0;
+    for (int i = 0; i < app->my_follows->count; i++)
+        if (app->my_follows->users[i].id == id) return 1;
+    return 0;
+}
+
 int app_init(app_t *app) {
     memset(app, 0, sizeof(*app));
     ss_state_init(&app->state);
     tui_cfg_load(&app->cfg);
-    store_init(&app->feed);
+    store_init(&app->feed.store);
     cstore_init(&app->comments);
     nstore_init(&app->notifs);
+    store_init(&app->profile_posts.store);
     app->tab = TAB_FEED;
     app->view = VIEW_TABS;
     app->detail_src = -1;
@@ -35,9 +71,13 @@ int app_init(app_t *app) {
 }
 
 void app_free(app_t *app) {
-    store_free(&app->feed);
+    store_free(&app->feed.store);
     cstore_free(&app->comments);
     nstore_free(&app->notifs);
+    store_free(&app->profile_posts.store);
+    free(app->users);
+    free(app->my_follows);
+    free(app->list_users);
 }
 
 void app_set_status(app_t *app, const char *fmt, ...) {
@@ -62,23 +102,25 @@ static void report(app_t *app, int rc) {
     if (rc != 0 && app->status_is_error) ui_modal_error(app, app->status);
 }
 
-static void feed_move(app_t *app, int delta) {
-    if (app->feed.count == 0) return;
+static void list_move(post_list_t *pl, int delta) {
+    if (pl->store.count == 0) return;
 
-    if (app->feed_on_more) {
-        if (delta < 0) { app->feed_on_more = 0; app->feed_sel = app->feed.count - 1; }
+    if (pl->on_more) {
+        if (delta < 0) { pl->on_more = 0; pl->sel = pl->store.count - 1; }
         return;
     }
 
-    int next = app->feed_sel + delta;
+    int next = pl->sel + delta;
 
-    if (next >= app->feed.count) {
-        if (app->feed.has_more) { app->feed_on_more = 1; return; }
-        next = app->feed.count - 1;
+    if (next >= pl->store.count) {
+        if (pl->store.has_more) { pl->on_more = 1; return; }
+        next = pl->store.count - 1;
     }
     if (next < 0) next = 0;
-    app->feed_sel = next;
+    pl->sel = next;
 }
+
+static void feed_move(app_t *app, int delta) { list_move(&app->feed, delta); }
 
 static void feed_page(app_t *app, int dir) {
     int step = ui_body_height() / 2;
@@ -86,19 +128,66 @@ static void feed_page(app_t *app, int dir) {
     feed_move(app, dir * step);
 }
 
+/* The post list on whichever screen is in front. */
+static post_list_t *active_list(app_t *app) {
+    if (app->view == VIEW_PROFILE) return &app->profile_posts;
+    if (app->tab == TAB_ME) return &app->profile_posts;
+    return &app->feed;
+}
+
+static void open_profile(app_t *app, int user_id) {
+    /* From a tab this pushes; from a list it also pushes, so Esc walks
+     * back the way the user came. */
+    view_t from = app->view;
+    app_push(app, VIEW_PROFILE);
+    if (net_open_profile(app, user_id) != 0) {
+        app_pop(app);
+        app->view = from;
+        if (app->status_is_error) ui_modal_error(app, app->status);
+    }
+}
+
+static void open_user_list(app_t *app, list_kind_t kind) {
+    int owner = (app->view == VIEW_PROFILE) ? app->profile_id : app->state.user.user_id;
+    view_t from = app->view;
+    app_push(app, VIEW_USERLIST);
+    if (net_open_user_list(app, owner, kind) != 0) {
+        app_pop(app);
+        app->view = from;
+        if (app->status_is_error) ui_modal_error(app, app->status);
+    }
+}
+
+static void open_selected_profile_post(app_t *app) {
+    post_list_t *pl = &app->profile_posts;
+    if (pl->store.count == 0) return;
+
+    if (pl->on_more) {
+        report(app, net_load_more_profile_posts(app));
+        pl->on_more = 0;
+        return;
+    }
+
+    app_push(app, VIEW_POST);
+    if (net_open_post(app, pl->store.posts[pl->sel].id, -1) != 0) {
+        app_pop(app);
+        if (app->status_is_error) ui_modal_error(app, app->status);
+    }
+}
+
 /* Liking from the feed reuses net_toggle_like by pointing the detail slot
  * at the selected row first, so both copies stay in step. */
 static void feed_like(app_t *app) {
-    if (app->feed.count == 0 || app->feed_on_more) return;
+    if (app->feed.store.count == 0 || app->feed.on_more) return;
     api_post_t saved = app->detail;
     int saved_src = app->detail_src;
 
-    app->detail = app->feed.posts[app->feed_sel];
-    app->detail_src = app->feed_sel;
+    app->detail = app->feed.store.posts[app->feed.sel];
+    app->detail_src = app->feed.sel;
 
     int rc = net_toggle_like(app);
 
-    if (rc == 0) app->feed.posts[app->feed_sel] = app->detail;
+    if (rc == 0) app->feed.store.posts[app->feed.sel] = app->detail;
 
     /* Restore whatever the detail view was holding. */
     app->detail = saved;
@@ -108,9 +197,12 @@ static void feed_like(app_t *app) {
 }
 
 static void open_selected_post(app_t *app) {
-    if (app->feed.count == 0 || app->feed_on_more) return;
-    int rc = net_open_post(app, app->feed.posts[app->feed_sel].id, app->feed_sel);
-    if (rc != 0 && app->status_is_error) ui_modal_error(app, app->status);
+    if (app->feed.store.count == 0 || app->feed.on_more) return;
+    app_push(app, VIEW_POST);
+    if (net_open_post(app, app->feed.store.posts[app->feed.sel].id, app->feed.sel) != 0) {
+        app_pop(app);
+        if (app->status_is_error) ui_modal_error(app, app->status);
+    }
 }
 
 static void notif_move(app_t *app, int delta) {
@@ -148,12 +240,15 @@ static void open_notif_target(app_t *app) {
     }
 
     /* -1: this did not come from the feed, so there is no row to keep in step. */
-    report(app, net_open_post(app, n->post_id, -1));
+    app_push(app, VIEW_POST);
+    if (net_open_post(app, n->post_id, -1) != 0) {
+        app_pop(app);
+        if (app->status_is_error) ui_modal_error(app, app->status);
+    }
 }
 
 static void close_post(app_t *app) {
-    app->view = VIEW_TABS;
-    app->status[0] = '\0';
+    app_pop(app);
 }
 
 /* Collects text either inline or from $EDITOR, per the config. Returns 1
@@ -233,7 +328,7 @@ static void delete_current_post(app_t *app) {
     snprintf(id, sizeof(id), "%s", app->detail.id);
 
     if (net_delete_post(app, id) == 0) {
-        app->view = VIEW_TABS;
+        app_pop(app);
     } else if (app->status_is_error) {
         ui_modal_error(app, app->status);
     }
@@ -263,15 +358,27 @@ static void switch_tab(app_t *app, tab_t t) {
 
     /* Re-fetch on arrival when what we hold is stale. */
     if (t == TAB_FEED) {
-        int stale = !app->feed_fetched ||
+        int stale = !app->feed.fetched ||
             (app->cfg.feed_refresh_secs > 0 &&
-             difftime(time(NULL), app->feed_fetched) >= app->cfg.feed_refresh_secs);
+             difftime(time(NULL), app->feed.fetched) >= app->cfg.feed_refresh_secs);
         if (stale) report(app, net_refresh_feed(app));
     } else if (t == TAB_NOTIFS) {
         int stale = !app->notifs_fetched ||
             (app->cfg.feed_refresh_secs > 0 &&
              difftime(time(NULL), app->notifs_fetched) >= app->cfg.feed_refresh_secs);
         if (stale) report(app, net_refresh_notifs(app));
+    } else if (t == TAB_USERS) {
+        int stale = !app->users_fetched ||
+            (app->cfg.feed_refresh_secs > 0 &&
+             difftime(time(NULL), app->users_fetched) >= app->cfg.feed_refresh_secs);
+        if (stale) report(app, net_refresh_users(app));
+    } else if (t == TAB_ME) {
+        /* The Me tab is the profile view pointed at yourself. */
+        int stale = app->profile_id != app->state.user.user_id ||
+                    !app->profile_posts.fetched ||
+                    (app->cfg.feed_refresh_secs > 0 &&
+                     difftime(time(NULL), app->profile_posts.fetched) >= app->cfg.feed_refresh_secs);
+        if (stale) report(app, net_open_profile(app, app->state.user.user_id));
     }
 }
 
@@ -289,12 +396,12 @@ static void run_timers(app_t *app) {
 
     if (app->view != VIEW_TABS) return;
 
-    if (app->tab == TAB_FEED && app->cfg.feed_refresh_secs > 0 && app->feed_fetched &&
-        difftime(now, app->feed_fetched) >= app->cfg.feed_refresh_secs) {
+    if (app->tab == TAB_FEED && app->cfg.feed_refresh_secs > 0 && app->feed.fetched &&
+        difftime(now, app->feed.fetched) >= app->cfg.feed_refresh_secs) {
         /* Hold position across an idle refresh rather than snapping to top. */
-        int sel = app->feed_sel, top = app->feed_top;
+        int sel = app->feed.sel, top = app->feed.top;
         if (net_refresh_feed(app) == 0) {
-            if (sel < app->feed.count) { app->feed_sel = sel; app->feed_top = top; }
+            if (sel < app->feed.store.count) { app->feed.sel = sel; app->feed.top = top; }
         }
     }
 
@@ -323,6 +430,76 @@ void app_run(app_t *app) {
 
         /* Any keypress clears a stale status message so hints return. */
         if (app->status[0] && !app->status_is_error) app->status[0] = '\0';
+
+        /* Profile view: its own post list, follow, follows/followers. */
+        if (app->view == VIEW_PROFILE) {
+            switch (ch) {
+                case KEY_RESIZE: continue;
+
+                case 27: case KEY_BACKSPACE: case 127: case 8:
+                    app_pop(app);
+                    continue;
+
+                case 'q': app->quit = 1; continue;
+
+                case 'j': case KEY_DOWN: list_move(&app->profile_posts, 1);  continue;
+                case 'k': case KEY_UP:   list_move(&app->profile_posts, -1); continue;
+                case KEY_NPAGE: case 4:
+                    list_move(&app->profile_posts, ui_body_height() / 2);  continue;
+                case KEY_PPAGE: case 21:
+                    list_move(&app->profile_posts, -(ui_body_height() / 2)); continue;
+
+                case 'g': case KEY_HOME:
+                    app->profile_posts.sel = 0; app->profile_posts.top = 0;
+                    app->profile_posts.on_more = 0; continue;
+                case 'G': case KEY_END:
+                    if (app->profile_posts.store.count) {
+                        app->profile_posts.sel = app->profile_posts.store.count - 1;
+                        app->profile_posts.on_more = 0;
+                    }
+                    continue;
+
+                case '\r': case '\n': case KEY_ENTER: case ' ':
+                    open_selected_profile_post(app);
+                    continue;
+
+                case 'f': report(app, net_toggle_follow(app)); continue;
+                case 'w': open_user_list(app, LIST_FOLLOWS);   continue;
+                case 'W': open_user_list(app, LIST_FOLLOWERS); continue;
+
+                case 'r': report(app, net_open_profile(app, app->profile_id)); continue;
+                case '?': ui_help(app); continue;
+                default:  continue;
+            }
+        }
+
+        /* A follows/followers list. */
+        if (app->view == VIEW_USERLIST) {
+            api_users_result_t *lst = app->list_users;
+            int n = lst ? lst->count : 0;
+
+            switch (ch) {
+                case KEY_RESIZE: continue;
+
+                case 27: case KEY_BACKSPACE: case 127: case 8:
+                    app_pop(app);
+                    continue;
+
+                case 'q': app->quit = 1; continue;
+
+                case 'j': case KEY_DOWN: if (app->list_sel < n - 1) app->list_sel++; continue;
+                case 'k': case KEY_UP:   if (app->list_sel > 0) app->list_sel--; continue;
+                case 'g': case KEY_HOME: app->list_sel = 0; continue;
+                case 'G': case KEY_END:  if (n) app->list_sel = n - 1; continue;
+
+                case '\r': case '\n': case KEY_ENTER:
+                    if (n) open_profile(app, lst->users[app->list_sel].id);
+                    continue;
+
+                case '?': ui_help(app); continue;
+                default:  continue;
+            }
+        }
 
         /* The post view owns most keys while it is open. */
         if (app->view == VIEW_POST) {
@@ -353,9 +530,9 @@ void app_run(app_t *app) {
 
                 case 'l':
                     report(app, net_toggle_like(app));
-                    if (app->detail_src >= 0 && app->detail_src < app->feed.count &&
-                        strcmp(app->feed.posts[app->detail_src].id, app->detail.id) == 0)
-                        app->feed.posts[app->detail_src] = app->detail;
+                    if (app->detail_src >= 0 && app->detail_src < app->feed.store.count &&
+                        strcmp(app->feed.store.posts[app->detail_src].id, app->detail.id) == 0)
+                        app->feed.store.posts[app->detail_src] = app->detail;
                     continue;
 
                 case 'o':
@@ -400,25 +577,44 @@ void app_run(app_t *app) {
                 break;
 
             case 'j': case KEY_DOWN:
-                if (app->tab == TAB_NOTIFS) notif_move(app, 1); else feed_move(app, 1);
+                if (app->tab == TAB_NOTIFS) notif_move(app, 1);
+                else if (app->tab == TAB_USERS) {
+                    int n = app->users ? app->users->count : 0;
+                    if (app->users_sel < n - 1) app->users_sel++;
+                } else list_move(active_list(app), 1);
                 break;
             case 'k': case KEY_UP:
-                if (app->tab == TAB_NOTIFS) notif_move(app, -1); else feed_move(app, -1);
+                if (app->tab == TAB_NOTIFS) notif_move(app, -1);
+                else if (app->tab == TAB_USERS) {
+                    if (app->users_sel > 0) app->users_sel--;
+                } else list_move(active_list(app), -1);
                 break;
             case KEY_NPAGE: case 4:                                /* ^D */
                 if (app->tab == TAB_NOTIFS) notif_move(app, ui_body_height() / 2);
+                else if (app->tab == TAB_USERS) {
+                    int n = app->users ? app->users->count : 0;
+                    app->users_sel += ui_body_height() / 2;
+                    if (app->users_sel > n - 1) app->users_sel = n ? n - 1 : 0;
+                } else if (app->tab == TAB_ME) list_move(active_list(app), ui_body_height() / 2);
                 else feed_page(app, 1);
                 break;
             case KEY_PPAGE: case 21:                               /* ^U */
                 if (app->tab == TAB_NOTIFS) notif_move(app, -(ui_body_height() / 2));
+                else if (app->tab == TAB_USERS) {
+                    app->users_sel -= ui_body_height() / 2;
+                    if (app->users_sel < 0) app->users_sel = 0;
+                } else if (app->tab == TAB_ME) list_move(active_list(app), -(ui_body_height() / 2));
                 else feed_page(app, -1);
                 break;
 
             case 'g': case KEY_HOME:
                 if (app->tab == TAB_NOTIFS) {
                     app->notif_sel = 0; app->notif_top = 0; app->notif_on_more = 0;
+                } else if (app->tab == TAB_USERS) {
+                    app->users_sel = 0; app->users_top = 0;
                 } else {
-                    app->feed_sel = 0; app->feed_top = 0; app->feed_on_more = 0;
+                    post_list_t *pl = active_list(app);
+                    pl->sel = 0; pl->top = 0; pl->on_more = 0;
                 }
                 break;
 
@@ -428,24 +624,36 @@ void app_run(app_t *app) {
                         app->notif_sel = app->notifs.count - 1;
                         app->notif_on_more = 0;
                     }
-                } else if (app->feed.count) {
-                    app->feed_sel = app->feed.count - 1; app->feed_on_more = 0;
+                } else if (app->tab == TAB_USERS) {
+                    int n = app->users ? app->users->count : 0;
+                    if (n) app->users_sel = n - 1;
+                } else {
+                    post_list_t *pl = active_list(app);
+                    if (pl->store.count) { pl->sel = pl->store.count - 1; pl->on_more = 0; }
                 }
                 break;
 
             case 'r':
                 if (app->tab == TAB_FEED) { report(app, net_refresh_feed(app)); net_refresh_badge(app); }
                 else if (app->tab == TAB_NOTIFS) report(app, net_refresh_notifs(app));
+                else if (app->tab == TAB_USERS) report(app, net_refresh_users(app));
+                else if (app->tab == TAB_ME) report(app, net_open_profile(app, app->state.user.user_id));
                 else net_refresh_badge(app);
                 break;
 
             case '\r': case '\n': case KEY_ENTER: case ' ':
                 if (app->tab == TAB_NOTIFS) { open_notif_target(app); break; }
+                if (app->tab == TAB_USERS) {
+                    int n = app->users ? app->users->count : 0;
+                    if (n) open_profile(app, app->users->users[app->users_sel].id);
+                    break;
+                }
+                if (app->tab == TAB_ME) { open_selected_profile_post(app); break; }
                 if (app->tab != TAB_FEED) break;
-                if (app->feed_on_more) {
+                if (app->feed.on_more) {
                     report(app, net_load_more_feed(app));
-                    app->feed_on_more = 0;
-                    if (app->feed.count) app->feed_sel = app->feed.count - 1;
+                    app->feed.on_more = 0;
+                    if (app->feed.store.count) app->feed.sel = app->feed.store.count - 1;
                 } else {
                     open_selected_post(app);
                 }
@@ -457,6 +665,13 @@ void app_run(app_t *app) {
 
             case 'c':
                 if (app->tab == TAB_FEED) compose_post(app);
+                break;
+
+            case 'w':
+                if (app->tab == TAB_ME) open_user_list(app, LIST_FOLLOWS);
+                break;
+            case 'W':
+                if (app->tab == TAB_ME) open_user_list(app, LIST_FOLLOWERS);
                 break;
 
             case '1': switch_tab(app, TAB_FEED);     break;

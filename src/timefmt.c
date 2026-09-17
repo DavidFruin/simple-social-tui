@@ -8,8 +8,14 @@
 
 /* Parsed as local time, which is what the server's timestamps have matched
  * so far. If that ever drifts, this is the one place to fix it. */
+/* The follows/followers endpoints return the literal string "Unknown"
+ * for relationships that predate the server tracking timestamps. */
+static int is_unknown(const char *ts) {
+    return !ts || !*ts || strcmp(ts, "Unknown") == 0;
+}
+
 static int parse_ts(const char *ts, time_t *out) {
-    if (!ts || !*ts) return -1;
+    if (is_unknown(ts)) return -1;
     struct tm tm;
     memset(&tm, 0, sizeof(tm));
     if (!strptime(ts, "%Y-%m-%d %H:%M:%S", &tm)) return -1;
@@ -21,9 +27,11 @@ static int parse_ts(const char *ts, time_t *out) {
 }
 
 void timefmt_short(const char *ts, char *out, size_t n) {
+    if (is_unknown(ts)) { out[0] = '\0'; return; }
+
     time_t t;
     if (parse_ts(ts, &t) != 0) {
-        snprintf(out, n, "%s", ts ? ts : "");
+        snprintf(out, n, "%s", ts);
         return;
     }
 
@@ -43,9 +51,11 @@ void timefmt_short(const char *ts, char *out, size_t n) {
 }
 
 void timefmt_full(const char *ts, char *out, size_t n) {
+    if (is_unknown(ts)) { snprintf(out, n, "unknown"); return; }
+
     time_t t;
     if (parse_ts(ts, &t) != 0) {
-        snprintf(out, n, "%s", ts ? ts : "");
+        snprintf(out, n, "%s", ts);
         return;
     }
     struct tm lt;
