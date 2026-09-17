@@ -1,0 +1,21 @@
+#ifndef TUI_NET_H
+#define TUI_NET_H
+
+#include "app.h"
+
+/* The one place the TUI blocks.
+ *
+ * Every call here paints a status message and flushes it to the screen
+ * before handing control to the library, which runs a synchronous
+ * curl_easy_perform (30s timeout; 120s on the media paths). The UI is
+ * frozen for that window -- no keys, no redraw -- so the "Loading..."
+ * line is the only warning the user gets, and it has to land first.
+ *
+ * Keeping all of it behind this seam means a future move to a worker
+ * thread touches these functions and nothing else. */
+
+int net_refresh_feed(app_t *app);   /* replaces the feed with page 1 */
+int net_load_more_feed(app_t *app); /* appends the next page */
+int net_refresh_badge(app_t *app);  /* unseen notification count */
+
+#endif
