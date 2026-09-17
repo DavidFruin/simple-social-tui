@@ -20,6 +20,10 @@ void ui_draw(app_t *app);
 void ui_modal_error(app_t *app, const char *msg);
 void ui_help(app_t *app);
 
+/* Modal yes/no. Returns 1 for yes. Defaults to no: anything that is not
+ * y or Y is a decline, so a stray keypress never confirms a delete. */
+int  ui_confirm(app_t *app, const char *question);
+
 /* Rows available to the body between the tab bar and the status line. */
 int  ui_body_height(void);
 

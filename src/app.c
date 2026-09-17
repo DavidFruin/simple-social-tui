@@ -8,6 +8,8 @@
 #include "net.h"
 #include "ss_api.h"
 #include "detail.h"
+#include "editor.h"
+#include "shell.h"
 
 static const char *TAB_NAMES[TAB_COUNT] = {
     "Feed", "Notifs", "Users", "Me", "Settings"
@@ -113,6 +115,96 @@ static void close_post(app_t *app) {
     app->status[0] = '\0';
 }
 
+/* Collects text either inline or from $EDITOR, per the config. Returns 1
+ * if there is something to send. */
+static int compose_text(app_t *app, const char *title, const char *send_label,
+                        char *out, size_t outsz) {
+    if (app->cfg.compose_mode == CFG_COMPOSE_EXTERNAL) {
+        app->input_active = 1;
+        int rc = shell_edit_text("", out, outsz);
+        app->input_active = 0;
+
+        if (rc < 0) {
+            app_set_error(app, "no editor found -- set $EDITOR, or use editor = inline in %s",
+                          app->cfg.path);
+            ui_modal_error(app, app->status);
+            return 0;
+        }
+        if (rc == 0) { app_set_status(app, "Nothing written, nothing sent."); return 0; }
+        return 1;
+    }
+
+    editor_t ed;
+    if (editor_init(&ed, "", 5000) != 0) {
+        app_set_error(app, "out of memory");
+        return 0;
+    }
+
+    int rc = editor_run(app, &ed, title, send_label);
+    if (rc != EDITOR_SUBMIT || ed.len == 0) {
+        editor_free(&ed);
+        if (rc == EDITOR_SUBMIT) app_set_status(app, "Empty -- nothing sent.");
+        return 0;
+    }
+
+    snprintf(out, outsz, "%s", ed.buf);
+    editor_free(&ed);
+    return 1;
+}
+
+static void compose_post(app_t *app) {
+    char text[5200];
+    if (!compose_text(app, "New post", "post", text, sizeof(text))) return;
+    report(app, net_create_post(app, text));
+}
+
+static void compose_comment(app_t *app) {
+    char text[5200];
+    if (!compose_text(app, "New comment", "comment", text, sizeof(text))) return;
+    report(app, net_create_comment(app, text));
+}
+
+static int is_mine(app_t *app, int user_id) {
+    return app->state.user.user_id != 0 && user_id == app->state.user.user_id;
+}
+
+static void delete_current_post(app_t *app) {
+    if (!is_mine(app, app->detail.user_id)) {
+        app_set_status(app, "You can only delete your own posts.");
+        return;
+    }
+    if (!ui_confirm(app, "Delete this post? This cannot be undone.")) {
+        app_set_status(app, "Not deleted.");
+        return;
+    }
+
+    char id[64];
+    snprintf(id, sizeof(id), "%s", app->detail.id);
+
+    if (net_delete_post(app, id) == 0) {
+        app->view = VIEW_TABS;
+    } else if (app->status_is_error) {
+        ui_modal_error(app, app->status);
+    }
+}
+
+static void delete_selected_comment(app_t *app) {
+    if (app->comments.count == 0 || app->detail_on_more) return;
+    if (app->comment_sel < 0 || app->comment_sel >= app->comments.count) return;
+
+    api_comment_t *c = &app->comments.comments[app->comment_sel];
+    if (!is_mine(app, c->user_id)) {
+        app_set_status(app, "You can only delete your own comments.");
+        return;
+    }
+    if (!ui_confirm(app, "Delete this comment? This cannot be undone.")) {
+        app_set_status(app, "Not deleted.");
+        return;
+    }
+
+    report(app, net_delete_comment(app, c->id));
+}
+
 static void switch_tab(app_t *app, tab_t t) {
     if (t == app->tab) return;
     app->tab = t;
@@ -204,6 +296,18 @@ void app_run(app_t *app) {
                     report(app, detail_open_media(app));
                     continue;
 
+                case 'c':
+                    compose_comment(app);
+                    continue;
+
+                case 'd':
+                    delete_selected_comment(app);
+                    continue;
+
+                case 'D':
+                    delete_current_post(app);
+                    continue;
+
                 case '\r': case '\n': case KEY_ENTER: case ' ':
                     if (app->detail_on_more) {
                         report(app, net_load_more_comments(app));
@@ -260,6 +364,10 @@ void app_run(app_t *app) {
 
             case 'l':
                 if (app->tab == TAB_FEED) feed_like(app);
+                break;
+
+            case 'c':
+                if (app->tab == TAB_FEED) compose_post(app);
                 break;
 
             case '1': switch_tab(app, TAB_FEED);     break;

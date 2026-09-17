@@ -182,3 +182,70 @@ int net_toggle_like(app_t *app) {
     app_set_status(app, liking ? "Liked." : "Unliked.");
     return 0;
 }
+
+/* ---------- writes ---------- */
+
+int net_create_post(app_t *app, const char *text) {
+    char post_id[64] = {0};
+
+    announce(app, "Posting...");
+
+    if (api_create_post(text, NULL, post_id, sizeof(post_id)) != 0) {
+        app_set_error(app, "%s", api_get_last_error());
+        return -1;
+    }
+
+    /* Show it straight away rather than waiting for the idle timer. */
+    if (net_refresh_feed(app) == 0) app_set_status(app, "Posted.");
+    return 0;
+}
+
+int net_create_comment(app_t *app, const char *text) {
+    int comment_id = 0;
+
+    announce(app, "Commenting...");
+
+    if (api_create_comment(app->detail.id, text, &comment_id) != 0) {
+        app_set_error(app, "%s", api_get_last_error());
+        return -1;
+    }
+
+    if (fetch_comments(app, 0, 0) != 0) return -1;
+    app->comment_sel = 0;
+    app->detail_scroll = 0;
+    app->detail_on_more = 0;
+    app_set_status(app, "Comment added.");
+    return 0;
+}
+
+int net_delete_post(app_t *app, const char *post_id) {
+    announce(app, "Deleting post...");
+
+    if (api_delete_post(post_id) != 0) {
+        app_set_error(app, "%s", api_get_last_error());
+        return -1;
+    }
+
+    if (net_refresh_feed(app) == 0) app_set_status(app, "Post deleted.");
+    return 0;
+}
+
+int net_delete_comment(app_t *app, int comment_id) {
+    announce(app, "Deleting comment...");
+
+    if (api_delete_comment(comment_id) != 0) {
+        app_set_error(app, "%s", api_get_last_error());
+        return -1;
+    }
+
+    if (fetch_comments(app, 0, 0) != 0) return -1;
+    if (app->comment_sel >= app->comments.count)
+        app->comment_sel = app->comments.count ? app->comments.count - 1 : 0;
+    app->detail_on_more = 0;
+    app_set_status(app, "Comment deleted.");
+    return 0;
+}
+
+int net_reload_comments(app_t *app) {
+    return fetch_comments(app, 0, 0);
+}

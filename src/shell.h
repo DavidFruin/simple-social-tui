@@ -17,4 +17,12 @@ int shell_media_url(const char *media_path, char *out, size_t n);
  * execvp and never through a shell. */
 int shell_open_url(const char *url);
 
+/* Suspends the TUI, opens `initial` in the user's editor, and returns what
+ * they saved. Returns 1 if there is text to use, 0 if they left it empty
+ * (which counts as cancelling), -1 if no editor could be launched.
+ *
+ * Editor is $VISUAL, then $EDITOR, then whatever is installed -- both are
+ * commonly unset. */
+int shell_edit_text(const char *initial, char *out, size_t outsz);
+
 #endif

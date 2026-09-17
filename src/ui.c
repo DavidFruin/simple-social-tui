@@ -162,11 +162,11 @@ static void draw_tabs(app_t *app) {
 
 static const char *hints_for(app_t *app) {
     if (app->view == VIEW_POST)
-        return "j/k:comments  l:like  o:open media  esc:back  ?:help  q:quit";
+        return "j/k:comments  c:comment  l:like  o:media  d/D:del  esc:back  ?:help";
 
     switch (app->tab) {
         case TAB_FEED:
-            return "j/k:move  enter:open  l:like  r:refresh  1-5:tabs  ?:help  q:quit";
+            return "j/k:move  enter:open  c:post  l:like  r:refresh  ?:help  q:quit";
         default:
             return "1-5:tabs  r:refresh  ?:help  q:quit";
     }
@@ -509,14 +509,24 @@ void ui_help(app_t *app) {
         "Feed",
         "  enter                 open the selected post",
         "  enter on load-more    fetch the next page",
+        "  c                     write a post",
         "  l                     like / unlike",
         "  r                     refresh",
         "",
         "Post",
         "  j / k                 move between comments",
+        "  c                     write a comment",
         "  l                     like / unlike",
         "  o                     open media in system viewer",
+        "  d                     delete the selected comment",
+        "  D                     delete the post",
         "  esc, backspace        back to the feed",
+        "",
+        "Composer",
+        "  type                  insert; enter makes a new line",
+        "  ctrl-d                send",
+        "  esc                   cancel (asks first if you wrote something)",
+        "  arrows, home / end    move the cursor",
         "",
         "Tabs",
         "  1 - 5                 jump to a tab",
@@ -575,4 +585,50 @@ void ui_help(app_t *app) {
 
     delwin(win);
     ui_draw(app);
+}
+
+int ui_confirm(app_t *app, const char *question) {
+    static char lines[MAX_WRAP][512];
+
+    int w = COLS - 8;
+    if (w > 60) w = 60;
+    if (w < 24) w = COLS > 24 ? 24 : COLS;
+
+    int n = wrap_text(question, w - 4, lines, MAX_WRAP);
+    int h = n + 4;
+    if (h > LINES) h = LINES;
+
+    int top = (LINES - h) / 2;
+    int left = (COLS - w) / 2;
+    if (top < 0) top = 0;
+    if (left < 0) left = 0;
+
+    WINDOW *win = newwin(h, w, top, left);
+    if (!win) return 0;
+
+    box(win, 0, 0);
+    wattron(win, A_BOLD);
+    mvwaddstr(win, 0, 2, " Confirm ");
+    wattroff(win, A_BOLD);
+
+    for (int i = 0; i < n && i + 1 < h - 2; i++)
+        mvwaddstr(win, 1 + i, 2, lines[i]);
+
+    wattron(win, A_BOLD);
+    mvwaddstr(win, h - 2, 2, "y");
+    wattroff(win, A_BOLD);
+    wattron(win, A_DIM);
+    mvwaddstr(win, h - 2, 3, " to confirm, any other key to cancel");
+    wattroff(win, A_DIM);
+
+    wrefresh(win);
+
+    timeout(-1);
+    int ch = getch();
+    timeout(500);
+
+    delwin(win);
+    ui_draw(app);
+
+    return (ch == 'y' || ch == 'Y');
 }
