@@ -133,6 +133,17 @@ void app_run(app_t *app);
 /* Drops everything fetched for the previous session. */
 void app_reset_data(app_t *app);
 
+/* Removes the shared token files (~/.simple-social-cli/), so the CLI
+ * tools stop being logged in too. Used by an explicit logout and by
+ * mid-session session-expiry. */
+void app_clear_session_files(void);
+
+/* The token was rejected mid-session (expired, revoked, or the server
+ * told us "Unauthorized" / HTTP 401). Clears local state and sets
+ * logged_out so the run loop drops back to the login screen instead of
+ * looping on calls that will keep failing the same way. */
+void app_session_expired(app_t *app);
+
 void app_set_status(app_t *app, const char *fmt, ...);
 void app_set_error(app_t *app, const char *fmt, ...);
 

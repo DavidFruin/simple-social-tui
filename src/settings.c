@@ -144,18 +144,6 @@ static void change_password(app_t *app) {
     app_set_status(app, "Password changed.");
 }
 
-/* The token file is shared, so logging out here logs out the CLI tools
- * too -- which is the point of sharing it. */
-static void clear_session_files(void) {
-    const char *home = getenv("HOME");
-    if (!home) return;
-    char path[512];
-    snprintf(path, sizeof(path), "%s/.simple-social-cli/jwt.txt", home);
-    unlink(path);
-    snprintf(path, sizeof(path), "%s/.simple-social-cli/user.json", home);
-    unlink(path);
-}
-
 static void do_logout(app_t *app) {
     if (!ui_confirm(app, "Log out? This also logs out the CLI tools, "
                          "since the token is shared.")) {
@@ -168,7 +156,7 @@ static void do_logout(app_t *app) {
     refresh();
 
     api_logout();                 /* best effort; the local token is what matters */
-    clear_session_files();
+    app_clear_session_files();
     ss_state_clear(&app->state);
     api_set_jwt("");
 
@@ -219,7 +207,7 @@ static void delete_account(app_t *app) {
         return;
     }
 
-    clear_session_files();
+    app_clear_session_files();
     ss_state_clear(&app->state);
 
     /* Nothing left to show. */

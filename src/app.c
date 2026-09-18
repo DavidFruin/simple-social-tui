@@ -11,6 +11,7 @@
 #include "editor.h"
 #include "shell.h"
 #include "filepick.h"
+#include <unistd.h>
 #include "settings.h"
 
 static const char *TAB_NAMES[TAB_COUNT] = {
@@ -130,10 +131,47 @@ void app_set_error(app_t *app, const char *fmt, ...) {
     app->status_is_error = 1;
 }
 
+void app_clear_session_files(void) {
+    const char *home = getenv("HOME");
+    if (!home) return;
+    char path[512];
+    snprintf(path, sizeof(path), "%s/.simple-social-cli/jwt.txt", home);
+    unlink(path);
+    snprintf(path, sizeof(path), "%s/.simple-social-cli/user.json", home);
+    unlink(path);
+}
+
+/* Both forms the server uses for a rejected token: api_call's own
+ * "HTTP %ld" for a non-2xx response, and the literal message
+ * requireAuth() sends in the body. Checked as a substring since some
+ * endpoints may wrap it differently. */
+static int looks_like_auth_error(const char *msg) {
+    if (!msg) return 0;
+    return strstr(msg, "HTTP 401") != NULL || strstr(msg, "Unauthorized") != NULL;
+}
+
+void app_session_expired(app_t *app) {
+    app_clear_session_files();
+    ss_state_clear(&app->state);
+    api_set_jwt("");
+    app->logged_out = 1;
+}
+
 /* Failures get a modal so they cannot scroll past unnoticed; transient
- * messages stay in the status line. */
+ * messages stay in the status line. A rejected token is different: no
+ * modal loop is going to fix it, so this drops straight back to the
+ * login screen with one explanatory message instead. */
 static void report(app_t *app, int rc) {
-    if (rc != 0 && app->status_is_error) ui_modal_error(app, app->status);
+    if (rc == 0 || !app->status_is_error) return;
+
+    if (looks_like_auth_error(app->status)) {
+        app_session_expired(app);
+        app_set_error(app, "Session expired. Logged out.");
+        ui_modal_error(app, app->status);
+        return;
+    }
+
+    ui_modal_error(app, app->status);
 }
 
 static void list_move(post_list_t *pl, int delta) {
