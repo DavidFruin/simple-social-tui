@@ -26,12 +26,10 @@ if `../simple-social-cli/lib/libss.so` is missing.
 ./simple-social-tui
 ```
 
-There's no login screen yet, so log in with a sibling tool first — the session is
-shared:
-
-```
-(cd ../simple-social-cli && ./simple-social-cli login)
-```
+If there's no session it shows a login screen: log in, register, or reset a
+forgotten password. All three use the same shared token, so logging in here logs
+you into the CLI tools too — and logging out of any of them logs you out of all
+three.
 
 ## Keys
 
@@ -68,6 +66,13 @@ In a profile (and the Me tab):
 | `w` | people they follow |
 | `W` | people following them |
 | `Esc` | back |
+
+In the settings tab:
+
+| Key | Does |
+|---|---|
+| `j` / `k` | move between actions |
+| `Enter` | run the selected action |
 
 In the notifications tab:
 
@@ -183,6 +188,31 @@ arguments (`code -w`), with the path passed as `"$1"` rather than interpolated.
 If the TUI is killed outright while the editor is open, its temp file in `/tmp` is
 left behind — the cleanup runs after the editor exits.
 
+## Account and session
+
+The login screen covers logging in, registering (email a code, verify it, choose a
+password) and resetting a forgotten password. On success the token is written to the
+shared location, so the CLI tools pick it up.
+
+Settings shows the live session and config, then the three account operations.
+They sit there rather than at top level so they are reachable without being
+somewhere you land by accident:
+
+- **Change password** — emails a code to the address on file, verifies it, then takes
+  the new password twice. It asks before sending anything.
+- **Log out** — says plainly that this logs out the CLI tools too, since the token is
+  shared. Clears the local token either way; the server call is best-effort.
+- **Delete account** — the password typed twice and matching, then a final
+  confirmation, then gone. The mismatch is caught locally, so a typo never reaches
+  the server.
+
+Passwords echo as dots and are wiped from their buffers after use rather than left
+sitting in memory.
+
+Logging out returns to the login screen rather than exiting, and everything fetched
+for the old session is dropped first, so the next person never sees the last one's
+feed.
+
 ## Screens
 
 Tabs are the top level; posts, profiles and follows lists push on top of whatever
@@ -240,6 +270,21 @@ server — the same rollback the CLI does.
 
 Comments take no media: the API has no parameter for it.
 
+## What has not been exercised
+
+Some paths cannot be tested without consequences for real people or real accounts,
+so they are written but unverified:
+
+- **follow / unfollow** and **liking someone else's post** write a notification to
+  that person's account. (Liking your own post is rejected by the server, so there is
+  no harmless target.)
+- **register** and **password reset** email a one-time code to a real address.
+- **logout**, **change password** and **delete account** would end or alter the
+  session this repo was developed against. Their confirmation gates are verified —
+  including the delete mismatch check — but not the operations themselves.
+
+Everything else in the Status list below was run against the live API.
+
 ## Status
 
 Working: feed with expand-on-selection, load-more paging, idle refresh that holds
@@ -249,7 +294,7 @@ unlike, opening media in the system viewer, writing posts and comments (inline o
 `$EDITOR`), attaching media with a picker or a typed path, deleting your own posts
 and comments with confirmation, help overlay, error modals.
 
-Not built yet: settings, login / register.
+Everything the CLI can do is now reachable here.
 
 Deletes are guarded twice: the key does nothing but explain itself unless the post
 or comment is yours, and then it asks. `ui_confirm` treats anything other than

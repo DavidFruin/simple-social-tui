@@ -115,12 +115,23 @@ typedef struct {
      * refresh timer never fires underneath someone's typing. */
     int  input_active;
 
+    int settings_sel;
+
+    int in_auth;           /* the login screen owns the display */
+    int auth_sel;
+
+    int logged_out;        /* set by logout: fall back to the login screen */
+    int account_deleted;   /* set by delete: say so on the way out */
+
     int quit;
 } app_t;
 
 int  app_init(app_t *app);
 void app_free(app_t *app);
 void app_run(app_t *app);
+
+/* Drops everything fetched for the previous session. */
+void app_reset_data(app_t *app);
 
 void app_set_status(app_t *app, const char *fmt, ...);
 void app_set_error(app_t *app, const char *fmt, ...);

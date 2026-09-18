@@ -2,10 +2,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#include <stdlib.h>
 #include <ncurses.h>
 #include "ui.h"
 #include "timefmt.h"
 #include "detail.h"
+#include "settings.h"
+#include "auth.h"
 
 #define TAB_ROW     0
 #define RULE_ROW    1
@@ -179,6 +182,8 @@ static const char *hints_for(app_t *app) {
             return "j/k:move  enter:profile  r:refresh  1-5:tabs  ?:help  q:quit";
         case TAB_ME:
             return "j/k:posts  enter:open  w/W:follows  r:refresh  ?:help  q:quit";
+        case TAB_SETTINGS:
+            return "j/k:move  enter:choose  1-5:tabs  ?:help  q:quit";
         default:
             return "1-5:tabs  r:refresh  ?:help  q:quit";
     }
@@ -659,15 +664,13 @@ static void draw_profile(app_t *app) {
                       "No posts yet.", "end");
 }
 
-static void draw_placeholder(app_t *app, const char *what) {
-    attron(A_DIM);
-    mvprintw(BODY_TOP + 1, 2, "%s is not built yet.", what);
-    mvaddstr(BODY_TOP + 3, 2, "Coming in the next chunk of work.");
-    attroff(A_DIM);
-    (void)app;
-}
 
 void ui_draw(app_t *app) {
+    if (app->in_auth) {
+        auth_draw(app);
+        return;
+    }
+
     erase();
     draw_tabs(app);
 
@@ -710,7 +713,7 @@ void ui_draw(app_t *app) {
         case TAB_NOTIFS:   draw_notifs(app); break;
         case TAB_USERS:    draw_users(app); break;
         case TAB_ME:       draw_profile(app); break;
-        case TAB_SETTINGS: draw_placeholder(app, "Settings"); break;
+        case TAB_SETTINGS: settings_draw(app, BODY_TOP); break;
         default: break;
     }
 
@@ -805,6 +808,10 @@ void ui_help(app_t *app) {
         "Tabs",
         "  1 - 5                 jump to a tab",
         "  tab / shift-tab       next / previous tab",
+        "",
+        "Settings",
+        "  j / k                 move between actions",
+        "  enter                 run the selected action",
         "",
         "  ?                     this help",
         "  q                     quit",
@@ -905,4 +912,134 @@ int ui_confirm(app_t *app, const char *question) {
     ui_draw(app);
 
     return (ch == 'y' || ch == 'Y');
+}
+
+int ui_prompt(app_t *app, const char *title, const char *label,
+              int hidden, char *out, size_t outsz) {
+    char buf[1024];
+    size_t len = 0;
+    buf[0] = '\0';
+
+    int chars = 0;      /* codepoints, for the dot echo and the counter */
+    int prev_input = app->input_active;
+
+    app->input_active = 1;   /* no idle refresh while someone is typing */
+    curs_set(1);
+    timeout(-1);
+
+    int result = 0;
+
+    for (;;) {
+        int w = COLS - 8;
+        if (w > 64) w = 64;
+        if (w < 24) w = COLS > 24 ? 24 : COLS;
+        int h = 6;
+        if (h > LINES) h = LINES;
+
+        int top = (LINES - h) / 2, left = (COLS - w) / 2;
+        if (top < 0) top = 0;
+        if (left < 0) left = 0;
+
+        ui_draw(app);
+
+        WINDOW *win = newwin(h, w, top, left);
+        if (!win) break;
+
+        box(win, 0, 0);
+        wattron(win, A_BOLD);
+        mvwprintw(win, 0, 2, " %s ", title);
+        wattroff(win, A_BOLD);
+
+        wattron(win, A_DIM);
+        char lbl[128];
+        ui_utf8_take(lbl, sizeof(lbl), label, w - 4, 1);
+        mvwaddstr(win, 1, 2, lbl);
+        wattroff(win, A_DIM);
+
+        /* What to show: dots for a secret, the tail of the text otherwise. */
+        char shown[1024];
+        int avail = w - 4;
+        if (hidden) {
+            int dots = chars < avail ? chars : avail;
+            for (int i = 0; i < dots; i++) shown[i] = '.';
+            shown[dots] = '\0';
+        } else {
+            const char *src = buf;
+            if ((int)len > avail) src = buf + (len - avail);
+            snprintf(shown, sizeof(shown), "%s", src);
+        }
+        mvwaddstr(win, 2, 2, shown);
+
+        wattron(win, A_DIM);
+        mvwaddstr(win, h - 2, 2, "enter accepts   esc cancels");
+        wattroff(win, A_DIM);
+
+        int cx = 2 + ui_utf8_width(shown);
+        if (cx > w - 2) cx = w - 2;
+        wmove(win, 2, cx);
+        wrefresh(win);
+
+        wint_t wch;
+        int kind = wget_wch(win, &wch);
+        delwin(win);
+
+        if (kind == ERR) continue;
+
+        if (kind == KEY_CODE_YES) {
+            if (wch == KEY_BACKSPACE && len > 0) {
+                size_t p = len - 1;
+                while (p > 0 && ((unsigned char)buf[p] & 0xC0) == 0x80) p--;
+                buf[p] = '\0';
+                len = p;
+                if (chars > 0) chars--;
+            }
+            continue;
+        }
+
+        if (wch == 27) { result = 0; break; }                 /* esc */
+
+        if (wch == '\r' || wch == '\n') {
+            result = (len > 0);
+            break;
+        }
+
+        if (wch == 8 || wch == 127) {                          /* backspace */
+            if (len > 0) {
+                size_t p = len - 1;
+                while (p > 0 && ((unsigned char)buf[p] & 0xC0) == 0x80) p--;
+                buf[p] = '\0';
+                len = p;
+                if (chars > 0) chars--;
+            }
+            continue;
+        }
+
+        if (wch == 21) { len = 0; chars = 0; buf[0] = '\0'; continue; }  /* ^U */
+
+        if (wch >= 32) {
+            char mb[MB_CUR_MAX + 1];
+            mbstate_t st;
+            memset(&st, 0, sizeof(st));
+            size_t n = wcrtomb(mb, (wchar_t)wch, &st);
+            if (n != (size_t)-1 && len + n + 1 < sizeof(buf)) {
+                memcpy(buf + len, mb, n);
+                len += n;
+                buf[len] = '\0';
+                chars++;
+            }
+        }
+    }
+
+    curs_set(0);
+    timeout(500);
+    app->input_active = prev_input;
+
+    if (result) snprintf(out, outsz, "%s", buf);
+    else if (outsz) out[0] = '\0';
+
+    /* Not left in the buffer any longer than needed. */
+    memset(buf, 0, sizeof(buf));
+
+    ui_draw(app);
+    return result;
 }

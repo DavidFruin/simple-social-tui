@@ -11,6 +11,7 @@
 #include "editor.h"
 #include "shell.h"
 #include "filepick.h"
+#include "settings.h"
 
 static const char *TAB_NAMES[TAB_COUNT] = {
     "Feed", "Notifs", "Users", "Me", "Settings"
@@ -47,6 +48,39 @@ void app_pop(app_t *app) {
         net_open_profile(app, f->profile_id);
     else if (f->view == VIEW_USERLIST)
         net_open_user_list(app, f->list_owner, f->list_kind);
+}
+
+/* Everything fetched belongs to one session, so a logout clears it all
+ * rather than letting the next user see the last one's feed. */
+void app_reset_data(app_t *app) {
+    store_clear(&app->feed.store);
+    app->feed.sel = app->feed.top = app->feed.on_more = 0;
+    app->feed.fetched = 0;
+
+    cstore_clear(&app->comments);
+    nstore_clear(&app->notifs);
+    app->notif_sel = app->notif_top = app->notif_on_more = app->notif_new = 0;
+    app->notifs_fetched = 0;
+
+    store_clear(&app->profile_posts.store);
+    app->profile_posts.sel = app->profile_posts.top = app->profile_posts.on_more = 0;
+    app->profile_posts.fetched = 0;
+    app->profile_id = 0;
+
+    if (app->users) memset(app->users, 0, sizeof(*app->users));
+    if (app->my_follows) memset(app->my_follows, 0, sizeof(*app->my_follows));
+    if (app->list_users) memset(app->list_users, 0, sizeof(*app->list_users));
+    app->users_sel = app->users_top = 0;
+    app->users_fetched = 0;
+
+    app->unseen = 0;
+    app->unseen_fetched = 0;
+    app->depth = 0;
+    app->view = VIEW_TABS;
+    app->tab = TAB_FEED;
+    app->settings_sel = 0;
+    app->status[0] = '\0';
+    app->status_is_error = 0;
 }
 
 int app_follows(app_t *app, int id) {
@@ -415,10 +449,12 @@ static void run_timers(app_t *app) {
 }
 
 void app_run(app_t *app) {
-    report(app, net_refresh_feed(app));
+    if (!app->feed.fetched) report(app, net_refresh_feed(app));
     net_refresh_badge(app);
 
     while (!app->quit) {
+        if (app->logged_out) return;      /* main shows the login screen again */
+
         ui_draw(app);
 
         int ch = getch();
@@ -577,14 +613,16 @@ void app_run(app_t *app) {
                 break;
 
             case 'j': case KEY_DOWN:
-                if (app->tab == TAB_NOTIFS) notif_move(app, 1);
+                if (app->tab == TAB_SETTINGS) settings_move(app, 1);
+                else if (app->tab == TAB_NOTIFS) notif_move(app, 1);
                 else if (app->tab == TAB_USERS) {
                     int n = app->users ? app->users->count : 0;
                     if (app->users_sel < n - 1) app->users_sel++;
                 } else list_move(active_list(app), 1);
                 break;
             case 'k': case KEY_UP:
-                if (app->tab == TAB_NOTIFS) notif_move(app, -1);
+                if (app->tab == TAB_SETTINGS) settings_move(app, -1);
+                else if (app->tab == TAB_NOTIFS) notif_move(app, -1);
                 else if (app->tab == TAB_USERS) {
                     if (app->users_sel > 0) app->users_sel--;
                 } else list_move(active_list(app), -1);
@@ -649,6 +687,7 @@ void app_run(app_t *app) {
                     break;
                 }
                 if (app->tab == TAB_ME) { open_selected_profile_post(app); break; }
+                if (app->tab == TAB_SETTINGS) { settings_activate(app); break; }
                 if (app->tab != TAB_FEED) break;
                 if (app->feed.on_more) {
                     report(app, net_load_more_feed(app));

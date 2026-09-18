@@ -24,6 +24,12 @@ void ui_help(app_t *app);
  * y or Y is a decline, so a stray keypress never confirms a delete. */
 int  ui_confirm(app_t *app, const char *question);
 
+/* Modal single-line input. Returns 1 when Enter was pressed with content,
+ * 0 on Esc or an empty Enter. With hidden set, keystrokes echo as dots --
+ * used for passwords and OTP codes. */
+int  ui_prompt(app_t *app, const char *title, const char *label,
+               int hidden, char *out, size_t outsz);
+
 /* Rows available to the body between the tab bar and the status line. */
 int  ui_body_height(void);
 

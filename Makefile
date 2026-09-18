@@ -11,7 +11,8 @@ CFLAGS  = -Wall -Wextra -O2 -I$(CLI_DIR)/lib $(NCURSES_CFLAGS)
 LDFLAGS = -L$(CLI_DIR)/lib -lss $(NCURSES_LIBS) -Wl,-rpath,'$$ORIGIN/$(CLI_DIR)/lib'
 
 SRCS = src/main.c src/app.c src/ui.c src/net.c src/store.c src/timefmt.c src/cfg.c \
-       src/detail.c src/shell.c src/editor.c src/filepick.c
+       src/detail.c src/shell.c src/editor.c src/filepick.c \
+       src/settings.c src/auth.c
 OBJS = $(SRCS:.c=.o)
 BIN  = simple-social-tui
 
