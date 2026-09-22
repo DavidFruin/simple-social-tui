@@ -4,14 +4,20 @@ CC = gcc
 # is self-contained: `git clone --recursive` + `make` is the whole story,
 # no separate simple-social-cli clone required.
 CLI_DIR   = vendor/simple-social-cli
-LIBSS     = $(CLI_DIR)/lib/libss.so
+LIBSS     = $(CLI_DIR)/lib/libss.a
 
 # ncursesw (wide char) so UTF-8 glyphs in the feed render correctly.
 NCURSES_CFLAGS = $(shell pkg-config --cflags ncursesw 2>/dev/null || echo -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600)
 NCURSES_LIBS   = $(shell pkg-config --libs ncursesw 2>/dev/null || echo -lncursesw -ltinfo)
 
-CFLAGS  = -Wall -Wextra -O2 -I$(CLI_DIR)/lib $(NCURSES_CFLAGS)
-LDFLAGS = -L$(CLI_DIR)/lib -lss $(NCURSES_LIBS) -Wl,-rpath,'$$ORIGIN/$(CLI_DIR)/lib'
+CFLAGS = -Wall -Wextra -O2 -I$(CLI_DIR)/lib $(NCURSES_CFLAGS)
+# Static archive linked directly (not -lss + rpath): the built binary ends
+# up a single self-contained file that works wherever it's copied or
+# symlinked, e.g. onto PATH via `make install`. -lcurl still needs
+# vendor/simple-social-cli's own vendor/ dir on the search path, since
+# that's where its vendor-links step puts the libcurl.so symlink dev
+# packages don't always provide.
+LDFLAGS = $(LIBSS) -L$(CLI_DIR)/vendor -lcurl $(NCURSES_LIBS)
 
 SRCS = src/main.c src/app.c src/ui.c src/net.c src/store.c src/timefmt.c src/cfg.c \
        src/detail.c src/shell.c src/editor.c src/filepick.c \
@@ -32,7 +38,7 @@ check-lib:
 		$(MAKE) -C $(CLI_DIR); \
 	fi
 
-$(BIN): $(OBJS)
+$(BIN): $(OBJS) $(LIBSS)
 	$(CC) -o $@ $(OBJS) $(LDFLAGS)
 
 src/%.o: src/%.c
@@ -42,9 +48,9 @@ clean:
 	rm -f $(OBJS) $(BIN)
 
 install: $(BIN)
-	install -m 755 $(BIN) /usr/local/bin/
+	install -m 755 $(BIN) /usr/local/bin/sstui
 
 uninstall:
-	rm -f /usr/local/bin/$(BIN)
+	rm -f /usr/local/bin/sstui
 
 .PHONY: all clean check-lib install uninstall
