@@ -1,0 +1,3 @@
+[submodule "vendor/simple-social-cli"]
+	path = vendor/simple-social-cli
+	url = https://github.com/DavidFruin/simple-social-cli.git

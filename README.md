@@ -2,23 +2,28 @@
 
 A full-screen terminal UI for Simple Social, built on ncurses.
 
-Third front end over the same shared library as the other two. `simple-social-cli`
+Third front end built on the same library as the other two. `simple-social-cli`
 is argv-style and scriptable, `simple-social-cli-interactive` is a wizard REPL, and
-this one is a screen you drive with the keyboard. All three link the same
-`libss.so` and share one session, so logging in with any of them logs you in
-everywhere.
+this one is a screen you drive with the keyboard. All three read and write the
+same `~/.simple-social-cli/` session state, so logging in with any of them logs
+you in everywhere, even though each repo now builds its own copy of the library.
 
-This repo never modifies `simple-social-cli`.
+`simple-social-cli` is vendored in as a git submodule under `vendor/`, not a
+sibling checkout - this repo is self-contained. It never modifies the vendored
+copy.
 
 ## Build
 
 ```
-cd ../simple-social-cli && make      # build the shared library first
-cd ../simple-social-tui  && make
+git clone --recursive https://github.com/DavidFruin/simple-social-tui.git
+cd simple-social-tui && make
 ```
 
-Needs `libncursesw` and a UTF-8 locale. `make` refuses to run with a clear message
-if `../simple-social-cli/lib/libss.so` is missing.
+`make` builds the vendored `simple-social-cli` library automatically if it isn't
+already built. If you cloned without `--recursive`, run
+`git submodule update --init --recursive` first.
+
+Needs `libncursesw` and a UTF-8 locale.
 
 ## Run
 

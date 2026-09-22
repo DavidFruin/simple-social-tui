@@ -1,6 +1,9 @@
 CC = gcc
 
-CLI_DIR   = ../simple-social-cli
+# Vendored as a git submodule rather than a sibling checkout, so this repo
+# is self-contained: `git clone --recursive` + `make` is the whole story,
+# no separate simple-social-cli clone required.
+CLI_DIR   = vendor/simple-social-cli
 LIBSS     = $(CLI_DIR)/lib/libss.so
 
 # ncursesw (wide char) so UTF-8 glyphs in the feed render correctly.
@@ -19,10 +22,14 @@ BIN  = simple-social-tui
 all: check-lib $(BIN)
 
 check-lib:
-	@if [ ! -f $(LIBSS) ]; then \
-		echo "error: $(LIBSS) not found."; \
-		echo "Build the shared library first: (cd $(CLI_DIR) && make)"; \
+	@if [ ! -f $(CLI_DIR)/Makefile ]; then \
+		echo "error: $(CLI_DIR) is empty - the submodule wasn't checked out."; \
+		echo "Run: git submodule update --init --recursive"; \
 		exit 1; \
+	fi
+	@if [ ! -f $(LIBSS) ]; then \
+		echo "Building vendored simple-social-cli library..."; \
+		$(MAKE) -C $(CLI_DIR); \
 	fi
 
 $(BIN): $(OBJS)
