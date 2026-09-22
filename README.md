@@ -25,11 +25,18 @@ already built. If you cloned without `--recursive`, run
 
 Needs `libncursesw` and a UTF-8 locale.
 
+The built binary is statically linked against the vendored library (no `.so` to
+keep track of), so it works wherever it ends up - copied, symlinked, whatever.
+`sudo make install` puts it on your PATH as `sstui`; `sudo make uninstall`
+removes it.
+
 ## Run
 
 ```
 ./simple-social-tui
 ```
+
+Or, once installed: `sstui`, from anywhere.
 
 If there's no session it shows a login screen: log in, register, or reset a
 forgotten password. All three use the same shared token, so logging in here logs
