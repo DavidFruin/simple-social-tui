@@ -39,7 +39,7 @@ void auth_draw(app_t *app) {
     attroff(A_BOLD);
 
     attron(A_DIM);
-    const char *sub = "no session -- the token is shared with the CLI tools";
+    const char *sub = "no session -- this tool signs in separately from the CLI tools";
     int sw = ui_utf8_width(sub);
     int sl = (COLS - sw) / 2;
     if (sl < 0) sl = 0;
@@ -78,12 +78,18 @@ void auth_draw(app_t *app) {
     doupdate();
 }
 
-/* Adopts a fresh JWT: store it, learn who we are, persist for the
- * sibling tools. */
+/* Adopts a fresh session: store both tokens and learn who we are. Every
+ * way of arriving at a new login - signing in, registering, resetting a
+ * password - comes through here, so the refresh token is saved once rather
+ * than at each call site. */
 static int adopt_session(app_t *app, const char *jwt) {
     ss_state_set_jwt(&app->state, jwt);
     api_set_jwt(jwt);
     ss_state_save_jwt(&app->state);
+
+    /* Without this the login lasts only as long as the access token. */
+    ss_state_set_refresh(&app->state, api_get_refresh_token());
+    ss_state_save_refresh(&app->state);
 
     int id = 0;
     char email[256] = {0}, created[32] = {0};

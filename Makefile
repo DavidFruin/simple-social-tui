@@ -10,7 +10,10 @@ LIBSS     = $(CLI_DIR)/lib/libss.a
 NCURSES_CFLAGS = $(shell pkg-config --cflags ncursesw 2>/dev/null || echo -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600)
 NCURSES_LIBS   = $(shell pkg-config --libs ncursesw 2>/dev/null || echo -lncursesw -ltinfo)
 
-CFLAGS = -Wall -Wextra -O2 -I$(CLI_DIR)/lib $(NCURSES_CFLAGS)
+# -MMD -MP emits .d files listing each object's header dependencies, so
+# editing a header rebuilds everything that includes it. Without it a
+# changed struct left stale objects linking against the old layout.
+CFLAGS = -Wall -Wextra -O2 -MMD -MP -I$(CLI_DIR)/lib $(NCURSES_CFLAGS)
 # Static archive linked directly (not -lss + rpath): the built binary ends
 # up a single self-contained file that works wherever it's copied or
 # symlinked, e.g. onto PATH via `make install`. -lcurl still needs
@@ -27,16 +30,17 @@ BIN  = simple-social-tui
 
 all: check-lib $(BIN)
 
+# Always delegates to the submodule's own make rather than only building
+# when the archive is missing: after a submodule bump the old archive is
+# still sitting there, and skipping the build silently links stale code
+# against fresh headers.
 check-lib:
 	@if [ ! -f $(CLI_DIR)/Makefile ]; then \
 		echo "error: $(CLI_DIR) is empty - the submodule wasn't checked out."; \
 		echo "Run: git submodule update --init --recursive"; \
 		exit 1; \
 	fi
-	@if [ ! -f $(LIBSS) ]; then \
-		echo "Building vendored simple-social-cli library..."; \
-		$(MAKE) -C $(CLI_DIR); \
-	fi
+	@$(MAKE) -C $(CLI_DIR)
 
 $(BIN): $(OBJS) $(LIBSS)
 	$(CC) -o $@ $(OBJS) $(LDFLAGS)
@@ -45,12 +49,14 @@ src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(OBJS) $(BIN)
+	rm -f $(OBJS) $(BIN) $(OBJS:.o=.d)
 
 install: $(BIN)
 	install -m 755 $(BIN) /usr/local/bin/sstui
 
 uninstall:
 	rm -f /usr/local/bin/sstui
+
+-include $(OBJS:.o=.d)
 
 .PHONY: all clean check-lib install uninstall

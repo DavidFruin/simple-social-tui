@@ -31,7 +31,7 @@ void settings_draw(app_t *app, int body_top) {
 
     attron(A_DIM);
     mvprintw(row++, 3, "%s  (id %d)", app->state.user.email, app->state.user.user_id);
-    mvprintw(row++, 3, "token in ~/.simple-social-cli/, shared with the CLI tools");
+    mvprintw(row++, 3, "token in ~/.simple-social-cli/tui/ (this tool only)");
     attroff(A_DIM);
     row++;
 
@@ -145,8 +145,8 @@ static void change_password(app_t *app) {
 }
 
 static void do_logout(app_t *app) {
-    if (!ui_confirm(app, "Log out? This also logs out the CLI tools, "
-                         "since the token is shared.")) {
+    if (!ui_confirm(app, "Log out of this device? The CLI tools keep "
+                         "their own sessions and stay signed in.")) {
         app_set_status(app, "Still logged in.");
         return;
     }

@@ -9,9 +9,10 @@
 #include "ss_config.h"
 #include "ss_state.h"
 
-/* Restore the session the CLI tools already established. The JWT lives in
- * ~/.simple-social-cli/, shared by all three front ends, so logging in with
- * any of them logs you in here too.
+/* Restore this tool's own session. Each front end keeps its tokens in its
+ * own directory under ~/.simple-social-cli/ and holds an independent
+ * server-side session, so signing in here is separate from the CLI and the
+ * wizard, and each shows up as its own device.
  *
  * Returns 0 with a live session, 1 with no usable session, -1 on a failure
  * that means we cannot run at all. */
@@ -23,6 +24,12 @@ static int auto_login(app_t *app) {
         fprintf(stderr, "error: failed to initialise HTTP client\n");
         return -1;
     }
+
+    /* Loaded before the first request so an access token that merely aged
+     * out gets renewed rather than dropping the user back to a login
+     * screen. */
+    if (ss_state_load_refresh(&app->state) == 0)
+        api_set_refresh_token(app->state.refresh);
 
     if (ss_state_load_jwt(&app->state) != 0) return 1;   /* no token stored */
     api_set_jwt(app->state.jwt);
@@ -38,12 +45,29 @@ static int auto_login(app_t *app) {
     return 0;
 }
 
+/* The app struct outlives every request, so the refresh callback can reach
+ * it to persist a renewed access token. */
+static app_t *g_app = NULL;
+
+static void on_token_refreshed(const char *jwt) {
+    if (!g_app) return;
+    ss_state_set_jwt(&g_app->state, jwt);
+    ss_state_save_jwt(&g_app->state);
+}
+
 int main(void) {
     /* Required before ncursesw will render multibyte glyphs. */
     setlocale(LC_ALL, "");
 
     app_t app;
     app_init(&app);
+    g_app = &app;
+
+    /* Its own app name and user agent: separate token storage from the
+     * other two front ends, and a recognisable entry in the device list. */
+    ss_state_set_app("tui");
+    api_set_user_agent("simple-social-tui");
+    api_set_token_refreshed_cb(on_token_refreshed);
 
     int auth = auto_login(&app);
     if (auth < 0) {

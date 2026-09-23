@@ -131,14 +131,12 @@ void app_set_error(app_t *app, const char *fmt, ...) {
     app->status_is_error = 1;
 }
 
+/* Delegates to the library, which knows where this tool's tokens live -
+ * they used to be at a fixed shared path, but each front end now has its
+ * own directory, and clearing the wrong one would both fail to log this
+ * tool out and sign the others out instead. */
 void app_clear_session_files(void) {
-    const char *home = getenv("HOME");
-    if (!home) return;
-    char path[512];
-    snprintf(path, sizeof(path), "%s/.simple-social-cli/jwt.txt", home);
-    unlink(path);
-    snprintf(path, sizeof(path), "%s/.simple-social-cli/user.json", home);
-    unlink(path);
+    ss_state_delete_files();
 }
 
 /* Both forms the server uses for a rejected token: api_call's own
