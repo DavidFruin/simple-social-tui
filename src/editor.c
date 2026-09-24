@@ -242,10 +242,12 @@ int editor_run(app_t *app, editor_t *ed, const char *title, const char *send_lab
         WINDOW *win = newwin(b.h, b.w, b.top, b.left);
         if (!win) break;
 
+        wattron(win, COLOR_PAIR(CP_PRIMARY));
         box(win, 0, 0);
-        wattron(win, A_BOLD);
+        wattroff(win, COLOR_PAIR(CP_PRIMARY));
+        wattron(win, COLOR_PAIR(CP_PRIMARY) | A_BOLD);
         mvwprintw(win, 0, 2, " %s ", title);
-        wattroff(win, A_BOLD);
+        wattroff(win, COLOR_PAIR(CP_PRIMARY) | A_BOLD);
 
         for (int i = 0; i < b.text_h; i++) {
             int ri = scroll + i;
@@ -268,10 +270,10 @@ int editor_run(app_t *app, editor_t *ed, const char *title, const char *send_lab
         char meta[256];
         snprintf(meta, sizeof(meta), "%d/%d", count, ed->max_chars);
         if (over_limit) wattron(win, COLOR_PAIR(CP_ERROR) | A_BOLD);
-        else wattron(win, A_DIM);
+        else wattron(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
         mvwaddstr(win, b.h - 2, 2, meta);
         if (over_limit) wattroff(win, COLOR_PAIR(CP_ERROR) | A_BOLD);
-        else wattroff(win, A_DIM);
+        else wattroff(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
 
         /* Attachment, just above the counter row. */
         if (attach && attach[0] && b.h >= 6) {
@@ -293,9 +295,9 @@ int editor_run(app_t *app, editor_t *ed, const char *title, const char *send_lab
             snprintf(hint, sizeof(hint), "^D %s   esc cancel", send_label);
         int hw = ui_utf8_width(hint);
         if (b.w - 2 - hw > (int)strlen(meta) + 3) {
-            wattron(win, A_DIM);
+            wattron(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
             mvwaddstr(win, b.h - 2, b.w - hw - 2, hint);
-            wattroff(win, A_DIM);
+            wattroff(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
         }
 
         /* Cursor, in window coordinates. */

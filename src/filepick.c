@@ -240,10 +240,12 @@ static int path_prompt(app_t *app, char *out, size_t outsz, const char *start_di
         WINDOW *win = newwin(h, w, top, left);
         if (!win) break;
 
+        wattron(win, COLOR_PAIR(CP_PRIMARY));
         box(win, 0, 0);
-        wattron(win, A_BOLD);
+        wattroff(win, COLOR_PAIR(CP_PRIMARY));
+        wattron(win, COLOR_PAIR(CP_PRIMARY) | A_BOLD);
         mvwaddstr(win, 0, 2, " Path to attach ");
-        wattroff(win, A_BOLD);
+        wattroff(win, COLOR_PAIR(CP_PRIMARY) | A_BOLD);
 
         /* Show the tail of the path when it is longer than the box. */
         int avail = w - 4;
@@ -251,9 +253,9 @@ static int path_prompt(app_t *app, char *out, size_t outsz, const char *start_di
         if ((int)len > avail) shown = buf + (len - avail);
         mvwaddstr(win, 1, 2, shown);
 
-        wattron(win, A_DIM);
+        wattron(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
         mvwaddstr(win, h - 2, 2, note[0] ? note : "tab completes   enter attaches   esc cancels");
-        wattroff(win, A_DIM);
+        wattroff(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
 
         int cx = 2 + ((int)len > avail ? avail : (int)len);
         if (cx > w - 2) cx = w - 2;
@@ -358,13 +360,15 @@ int filepick_run(app_t *app, char *out, size_t outsz) {
         WINDOW *win = newwin(h, w, top_y, left);
         if (!win) break;
 
+        wattron(win, COLOR_PAIR(CP_PRIMARY));
         box(win, 0, 0);
+        wattroff(win, COLOR_PAIR(CP_PRIMARY));
 
         char title[256];
         ui_utf8_take(title, sizeof(title), dir, w - 8, 1);
-        wattron(win, A_BOLD);
+        wattron(win, COLOR_PAIR(CP_PRIMARY) | A_BOLD);
         mvwprintw(win, 0, 2, " %s ", title);
-        wattroff(win, A_BOLD);
+        wattroff(win, COLOR_PAIR(CP_PRIMARY) | A_BOLD);
 
         if (g_count == 0) {
             wattron(win, A_DIM);
@@ -403,13 +407,13 @@ int filepick_run(app_t *app, char *out, size_t outsz) {
             else if (e->size > filepick_max_bytes(e->name)) wattroff(win, COLOR_PAIR(CP_ERROR));
         }
 
-        wattron(win, A_DIM);
+        wattron(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
         char hint[256];
         ui_utf8_take(hint, sizeof(hint),
                      note[0] ? note : "enter open/attach   h up   / type a path   esc cancel",
                      w - 4, 1);
         mvwaddstr(win, h - 2, 2, hint);
-        wattroff(win, A_DIM);
+        wattroff(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
 
         wrefresh(win);
 
