@@ -257,7 +257,7 @@ static void draw_tabs(app_t *app) {
 
 static const char *hints_for(app_t *app) {
     if (app->view == VIEW_POST)
-        return "j/k:comments  c:comment  l:like  o:media  d/D:del  esc:back  ?:help";
+        return "j/k:comments  c:comment  l:like  o:media  d/D:del  tab:tabs  esc:back  ?:help";
 
     if (app->view == VIEW_PROFILE)
         return "j/k:posts  enter:open  f:follow  w/W:follows  esc:back  ?:help";
@@ -267,7 +267,7 @@ static const char *hints_for(app_t *app) {
 
     switch (app->tab) {
         case TAB_FEED:
-            return "j/k:move  enter:open  c:post  l:like  r:refresh  ?:help  q:quit";
+            return "j/k:move  enter:open  p:post  l:like  r:refresh  ?:help  q:quit";
         case TAB_NOTIFS:
             return "j/k:move  enter:open post  r:refresh  1-5:tabs  ?:help  q:quit";
         case TAB_USERS:
@@ -364,7 +364,6 @@ static int wrap_text(const char *text, int width, char lines[][512], int max_lin
 #define MAX_WRAP 64
 
 static int post_height(post_list_t *pl, int idx, int width) {
-    if (idx != pl->sel) return 3;  /* collapsed: top border + content + bottom border */
     int body_w = width - 4;
     if (body_w < 8) body_w = 8;
     int n = wrap_text(pl->store.posts[idx].text, body_w, NULL, MAX_WRAP);
@@ -391,60 +390,14 @@ static void ensure_visible(post_list_t *pl, int body_h) {
     }
 }
 
-/* Collapsed post: a 3-row box (top border, one content line, bottom
- * border). Content-line layout mirrors the pre-box single-line version,
- * just inset by one column on each side to clear the border. */
-static void draw_collapsed(post_list_t *pl, int row, int idx) {
+/* Every post is drawn in full -- wrapped body, meta row, the works --
+ * with only the selected one getting a bold border instead of a dim one
+ * to mark it as the selection. Clamped to `bottom`: near the end of the
+ * screen it just shows fewer interior rows, always closing with its own
+ * bottom border rather than running past `bottom`. */
+static int draw_post_card(post_list_t *pl, int row, int idx, int bottom) {
     api_post_t *p = &pl->store.posts[idx];
-
-    ui_draw_box(row, 0, 3, COLS, 0);
-    int content = row + 1;
-
-    char when[32];
-    timefmt_short(p->timestamp, when, sizeof(when));
-    int when_w = ui_utf8_width(when);
-
-    char likes[16];
-    snprintf(likes, sizeof(likes), "%s%d", "\xe2\x99\xa5", p->like_count);  /* ♥ */
-    int likes_w = ui_utf8_width(likes);
-
-    int author_w = 22;
-    if (COLS < 60) author_w = 14;
-
-    char author[128];
-    ui_utf8_take(author, sizeof(author), p->user_email, author_w, 1);
-
-    mvaddstr(content, 1, p->media_url[0] ? "\xe2\x97\x8f" : " ");  /* ● marks media */
-
-    attron(COLOR_PAIR(CP_AUTHOR));
-    mvaddstr(content, 3, author);
-    attroff(COLOR_PAIR(CP_AUTHOR));
-
-    int text_x = 3 + author_w + 1;
-    int right_w = likes_w + 2 + when_w + 1;   /* +2 keeps a gap after the text */
-    int text_w = (COLS - 1) - text_x - right_w;
-    if (text_w < 4) text_w = 4;
-
-    char text[1024];
-    ui_utf8_take(text, sizeof(text), p->text, text_w, 1);
-    draw_text_line(content, text_x, text);
-
-    if (p->is_liked) attron(COLOR_PAIR(CP_LIKED) | A_BOLD);
-    mvaddstr(content, (COLS - 1) - right_w, likes);
-    if (p->is_liked) attroff(COLOR_PAIR(CP_LIKED) | A_BOLD);
-
-    attron(A_DIM);
-    mvaddstr(content, COLS - when_w - 2, when);
-    attroff(A_DIM);
-}
-
-/* Expanded (selected) post: a box sized to its wrapped body, with a
- * bold border to mark it as the selection among the collapsed cards
- * around it. Clamped to `bottom` like the old unboxed version was --
- * near the end of the screen it just shows fewer interior rows, always
- * closing with its own bottom border rather than running past `bottom`. */
-static int draw_expanded(post_list_t *pl, int row, int idx, int bottom) {
-    api_post_t *p = &pl->store.posts[idx];
+    int selected = (idx == pl->sel);
     int body_w = COLS - 4;
     if (body_w < 8) body_w = 8;
 
@@ -455,7 +408,7 @@ static int draw_expanded(post_list_t *pl, int row, int idx, int bottom) {
     if (row + h - 1 > bottom) h = bottom - row + 1;
     if (h < 2) return bottom + 1;   /* no room left to draw anything */
 
-    ui_draw_box(row, 0, h, COLS, 1);
+    ui_draw_box(row, 0, h, COLS, selected);
     int last = row + h - 1;   /* the bottom border's row -- never draw on it */
 
     char when[32];
@@ -520,14 +473,8 @@ void ui_draw_post_list(post_list_t *pl, int body_top, int bottom, const char *em
     ensure_visible(pl, bottom - body_top + 1);
 
     int row = body_top;
-    for (int i = pl->top; i < pl->store.count && row <= bottom; i++) {
-        if (i == pl->sel) {
-            row = draw_expanded(pl, row, i, bottom);
-        } else {
-            draw_collapsed(pl, row, i);
-            row++;
-        }
-    }
+    for (int i = pl->top; i < pl->store.count && row <= bottom; i++)
+        row = draw_post_card(pl, row, i, bottom);
 
     if (row <= bottom) {
         char more[128];
@@ -892,7 +839,7 @@ void ui_help(app_t *app) {
         "Feed",
         "  enter                 open the selected post",
         "  enter on load-more    fetch the next page",
-        "  c                     write a post",
+        "  p                     write a post",
         "  l                     like / unlike",
         "  r                     refresh",
         "",
@@ -903,6 +850,7 @@ void ui_help(app_t *app) {
         "  o                     open media in system viewer",
         "  d                     delete the selected comment",
         "  D                     delete the post",
+        "  tab / shift-tab       next / previous tab (closes the post)",
         "  esc, backspace        back to the feed",
         "",
         "Composer",

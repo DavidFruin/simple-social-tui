@@ -73,11 +73,11 @@ Vim-style, with arrows and page keys working too.
 
 | Key | Does |
 |---|---|
-| `j` / `k`, `↓` / `↑` | move the cursor; the selected post expands in place |
+| `j` / `k`, `↓` / `↑` | move the cursor; every post shows in full, the selected one gets a bold border |
 | `Ctrl-d` / `Ctrl-u`, `PgDn` / `PgUp` | half-page jumps |
 | `g` / `G`, `Home` / `End` | first / last post |
 | `Enter` / `Space` | open the selected post; on the load-more row, fetch the next page |
-| `c` | write a post |
+| `p` | write a post |
 | `l` | like / unlike |
 | `r` | refresh the current view |
 | `1`–`5`, `Tab` / `Shift-Tab` | switch tabs |
@@ -129,6 +129,7 @@ In an open post:
 | `o` | open the post's media in the system viewer (`xdg-open`) |
 | `d` | delete the selected comment (yours only) |
 | `D` | delete the post (yours only) |
+| `Tab` / `Shift-Tab` | switch tabs (closes the post first) |
 | `Esc` / `Backspace` | back to the feed, selection preserved |
 
 In the file picker:
@@ -323,10 +324,12 @@ Everything else in the Status list below was run against the live API.
 
 ## Status
 
-Working: feed with expand-on-selection, load-more paging, idle refresh that holds
-your position, notification badge, live resize, 16-color theming that inherits the
-terminal's scheme, post detail with paged comments and comment selection, like /
-unlike, opening media in the system viewer, writing posts and comments (inline or
+Working: feed of box-drawn post cards (every post shown in full, the selected one
+bold-bordered), load-more paging, idle refresh that holds your position,
+notification badge, live resize, a fixed black-background color scheme (mirrors
+the web app's look rather than inheriting the terminal's own theme), post detail
+with paged comments and comment selection, like / unlike, opening media in the
+system viewer, writing posts and comments (inline or
 `$EDITOR`), attaching media with a picker or a typed path, deleting your own posts
 and comments with confirmation, help overlay, error modals.
 

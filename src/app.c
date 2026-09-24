@@ -421,6 +421,17 @@ static void delete_selected_comment(app_t *app) {
     report(app, net_delete_comment(app, c->id));
 }
 
+/* Closes every pushed view in one step (a post opened from a profile you
+ * drilled into, say) so tab/shift-tab from inside one always lands
+ * somewhere visible instead of just changing app->tab under a view that
+ * doesn't render it. Skips app_pop()'s per-frame rebuild since none of
+ * those intermediate frames are about to be shown anyway. */
+static void close_to_tabs(app_t *app) {
+    app->depth = 0;
+    app->view = VIEW_TABS;
+    app->status[0] = '\0';
+}
+
 static void switch_tab(app_t *app, tab_t t) {
     if (t == app->tab) return;
     app->tab = t;
@@ -630,6 +641,15 @@ void app_run(app_t *app) {
                     }
                     continue;
 
+                case '\t':
+                    close_to_tabs(app);
+                    switch_tab(app, (app->tab + 1) % TAB_COUNT);
+                    continue;
+                case KEY_BTAB:
+                    close_to_tabs(app);
+                    switch_tab(app, (app->tab + TAB_COUNT - 1) % TAB_COUNT);
+                    continue;
+
                 case '?':
                     ui_help(app);
                     continue;
@@ -738,7 +758,7 @@ void app_run(app_t *app) {
                 if (app->tab == TAB_FEED) feed_like(app);
                 break;
 
-            case 'c':
+            case 'p':
                 if (app->tab == TAB_FEED) compose_post(app);
                 break;
 
