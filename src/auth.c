@@ -34,9 +34,9 @@ void auth_draw(app_t *app) {
     int left = (COLS - tw) / 2;
     if (left < 0) left = 0;
 
-    attron(A_BOLD);
+    attron(COLOR_PAIR(CP_PRIMARY) | A_BOLD);
     mvaddstr(top, left, title);
-    attroff(A_BOLD);
+    attroff(COLOR_PAIR(CP_PRIMARY) | A_BOLD);
 
     attron(A_DIM);
     const char *sub = "no session -- this tool signs in separately from the CLI tools";
@@ -48,7 +48,7 @@ void auth_draw(app_t *app) {
 
     for (int i = 0; i < AUTH_CHOICES; i++) {
         int row = top + 3 + i;
-        if (row >= LINES - 1) break;
+        if (row >= LINES - 2) break;  /* leaves room for the footer rule + status row */
 
         int w = ui_utf8_width(CHOICE[i]);
         int x = (COLS - w) / 2;
@@ -62,6 +62,12 @@ void auth_draw(app_t *app) {
         if (i == sel) attroff(A_REVERSE);
     }
 
+    /* Rule above the footer text, mirroring the web footer's border-top --
+     * matches the tab-bar chrome the rest of the app uses. */
+    attron(COLOR_PAIR(CP_PRIMARY) | A_DIM);
+    mvhline(LINES - 2, 0, ACS_HLINE, COLS);
+    attroff(COLOR_PAIR(CP_PRIMARY) | A_DIM);
+
     if (app->status[0]) {
         char buf[256];
         ui_utf8_take(buf, sizeof(buf), app->status, COLS - 2, 1);
@@ -69,9 +75,9 @@ void auth_draw(app_t *app) {
         mvaddstr(LINES - 1, 0, buf);
         if (app->status_is_error) attroff(COLOR_PAIR(CP_ERROR) | A_BOLD);
     } else {
-        attron(A_DIM | COLOR_PAIR(CP_HINT));
+        attron(A_DIM | COLOR_PAIR(CP_PRIMARY));
         mvaddstr(LINES - 1, 0, "j/k:move   enter:choose   q:quit");
-        attroff(A_DIM | COLOR_PAIR(CP_HINT));
+        attroff(A_DIM | COLOR_PAIR(CP_PRIMARY));
     }
 
     wnoutrefresh(stdscr);

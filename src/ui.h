@@ -3,15 +3,26 @@
 
 #include "app.h"
 
-/* Color pairs. Only the terminal's own 16 colors are used, and
- * use_default_colors() keeps the background transparent, so the TUI
- * inherits whatever scheme the terminal already has. */
-#define CP_TAB_ACTIVE 1
+/* One fixed palette, forced to a black background (assume_default_colors()
+ * in ui_init(), not use_default_colors()) so the app looks the same
+ * everywhere instead of inheriting whatever scheme the terminal has. Each
+ * of the 8 base ANSI colors has one job, mirroring the role each CSS
+ * variable plays on the web app (--color-primary, --color-success, ...):
+ *   white   - body text (the unpaired default, pair 0)
+ *   cyan    - author / usernames
+ *   green   - liked / success
+ *   red     - error / destructive
+ *   yellow  - badges / unread markers
+ *   blue    - primary: active tab fill, logo, borders, hints
+ *   magenta - @mentions and tags in post/comment text
+ */
+#define CP_TAB_ACTIVE 1   /* black-on-blue filled pill: the active tab */
 #define CP_AUTHOR     2
 #define CP_LIKED      3
 #define CP_ERROR      4
 #define CP_BADGE      5
-#define CP_HINT       6
+#define CP_PRIMARY    6   /* blue: borders/rules (dim), logo (bold), hints (dim) */
+#define CP_MENTION    7
 
 int  ui_init(void);
 void ui_teardown(void);
@@ -32,6 +43,10 @@ int  ui_prompt(app_t *app, const char *title, const char *label,
 
 /* Rows available to the body between the tab bar and the status line. */
 int  ui_body_height(void);
+
+/* Draws an h x w box (ACS line-drawing, so it degrades on limited
+ * terminals) with its top-left corner at (y, x) on stdscr. */
+void ui_draw_box(int y, int x, int h, int w);
 
 /* Draws a scrollable post list with the selection expanded in place.
  * Shared by the feed and a profile's posts. */

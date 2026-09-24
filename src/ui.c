@@ -28,13 +28,18 @@ int ui_init(void) {
 
     if (has_colors()) {
         start_color();
-        use_default_colors();
-        init_pair(CP_TAB_ACTIVE, COLOR_BLACK,   COLOR_CYAN);
-        init_pair(CP_AUTHOR,     COLOR_CYAN,    -1);
-        init_pair(CP_LIKED,      COLOR_GREEN,   -1);
-        init_pair(CP_ERROR,      COLOR_RED,     -1);
-        init_pair(CP_BADGE,      COLOR_YELLOW,  -1);
-        init_pair(CP_HINT,       COLOR_BLUE,    -1);
+        /* Forces a black background everywhere, including plain unpaired
+         * text (pair 0), instead of use_default_colors()'s transparency --
+         * the app should look the same regardless of the terminal's own
+         * scheme, the way the website looks the same in every browser. */
+        assume_default_colors(COLOR_WHITE, COLOR_BLACK);
+        init_pair(CP_TAB_ACTIVE, COLOR_BLACK,   COLOR_BLUE);
+        init_pair(CP_AUTHOR,     COLOR_CYAN,    COLOR_BLACK);
+        init_pair(CP_LIKED,      COLOR_GREEN,   COLOR_BLACK);
+        init_pair(CP_ERROR,      COLOR_RED,     COLOR_BLACK);
+        init_pair(CP_BADGE,      COLOR_YELLOW,  COLOR_BLACK);
+        init_pair(CP_PRIMARY,    COLOR_BLUE,    COLOR_BLACK);
+        init_pair(CP_MENTION,    COLOR_MAGENTA, COLOR_BLACK);
     }
     return 0;
 }
@@ -45,8 +50,29 @@ void ui_teardown(void) {
 }
 
 int ui_body_height(void) {
-    int h = LINES - BODY_TOP - 1;  /* minus the status row */
+    int h = LINES - BODY_TOP - 2;  /* minus the footer's rule + status rows */
     return h > 0 ? h : 0;
+}
+
+/* Draws an h x w box (ACS line-drawing, so it degrades on limited
+ * terminals) with its top-left corner at (y, x) on stdscr. */
+void ui_draw_box(int y, int x, int h, int w) {
+    if (h < 2 || w < 2) return;
+
+    attron(COLOR_PAIR(CP_PRIMARY) | A_DIM);
+    mvaddch(y, x, ACS_ULCORNER);
+    mvhline(y, x + 1, ACS_HLINE, w - 2);
+    mvaddch(y, x + w - 1, ACS_URCORNER);
+
+    for (int row = y + 1; row < y + h - 1; row++) {
+        mvaddch(row, x, ACS_VLINE);
+        mvaddch(row, x + w - 1, ACS_VLINE);
+    }
+
+    mvaddch(y + h - 1, x, ACS_LLCORNER);
+    mvhline(y + h - 1, x + 1, ACS_HLINE, w - 2);
+    mvaddch(y + h - 1, x + w - 1, ACS_LRCORNER);
+    attroff(COLOR_PAIR(CP_PRIMARY) | A_DIM);
 }
 
 int ui_utf8_width(const char *s) {
@@ -125,6 +151,22 @@ static void draw_tabs(app_t *app) {
     clrtoeol();
 
     int x = 0;
+
+    /* "Simple Social" brand, mirroring the web header's logo link --
+     * dropped on narrow terminals so the tabs keep their room. */
+    if (COLS >= 60) {
+        const char *logo = " Simple Social ";
+        attron(COLOR_PAIR(CP_PRIMARY) | A_BOLD);
+        mvaddstr(TAB_ROW, x, logo);
+        attroff(COLOR_PAIR(CP_PRIMARY) | A_BOLD);
+        x += ui_utf8_width(logo);
+
+        attron(COLOR_PAIR(CP_PRIMARY) | A_DIM);
+        mvaddch(TAB_ROW, x, ACS_VLINE);
+        attroff(COLOR_PAIR(CP_PRIMARY) | A_DIM);
+        x += 1;
+    }
+
     for (int t = 0; t < TAB_COUNT; t++) {
         char label[64];
         if (t == TAB_NOTIFS && app->unseen > 0)
@@ -137,13 +179,18 @@ static void draw_tabs(app_t *app) {
 
         int active = (t == (int)app->tab);
         if (active) attron(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
-        else if (t == TAB_NOTIFS && app->unseen > 0) attron(COLOR_PAIR(CP_BADGE));
+        else if (t == TAB_NOTIFS && app->unseen > 0) attron(COLOR_PAIR(CP_BADGE) | A_BOLD);
         mvaddstr(TAB_ROW, x, label);
         if (active) attroff(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
-        else if (t == TAB_NOTIFS && app->unseen > 0) attroff(COLOR_PAIR(CP_BADGE));
+        else if (t == TAB_NOTIFS && app->unseen > 0) attroff(COLOR_PAIR(CP_BADGE) | A_BOLD);
 
         x += w;
-        if (x < COLS) { attron(A_DIM); mvaddstr(TAB_ROW, x, "|"); attroff(A_DIM); x += 1; }
+        if (x < COLS) {
+            attron(COLOR_PAIR(CP_PRIMARY) | A_DIM);
+            mvaddch(TAB_ROW, x, ACS_VLINE);
+            attroff(COLOR_PAIR(CP_PRIMARY) | A_DIM);
+            x += 1;
+        }
     }
 
     /* Who you are, right-aligned, if it fits. */
@@ -152,15 +199,15 @@ static void draw_tabs(app_t *app) {
         ui_utf8_take(who, sizeof(who), app->state.user.email, 28, 1);
         int w = ui_utf8_width(who);
         if (COLS - w - 1 > x + 2) {
-            attron(A_DIM);
+            attron(COLOR_PAIR(CP_PRIMARY) | A_DIM);
             mvaddstr(TAB_ROW, COLS - w - 1, who);
-            attroff(A_DIM);
+            attroff(COLOR_PAIR(CP_PRIMARY) | A_DIM);
         }
     }
 
-    attron(A_DIM);
+    attron(COLOR_PAIR(CP_PRIMARY) | A_DIM);
     mvhline(RULE_ROW, 0, ACS_HLINE, COLS);
-    attroff(A_DIM);
+    attroff(COLOR_PAIR(CP_PRIMARY) | A_DIM);
 }
 
 static const char *hints_for(app_t *app) {
@@ -190,6 +237,11 @@ static const char *hints_for(app_t *app) {
 }
 
 static void draw_status(app_t *app) {
+    /* Rule above the footer text, mirroring the web footer's border-top. */
+    attron(COLOR_PAIR(CP_PRIMARY) | A_DIM);
+    mvhline(LINES - 2, 0, ACS_HLINE, COLS);
+    attroff(COLOR_PAIR(CP_PRIMARY) | A_DIM);
+
     int row = LINES - 1;
     move(row, 0);
     clrtoeol();
@@ -205,9 +257,9 @@ static void draw_status(app_t *app) {
 
     char buf[256];
     ui_utf8_take(buf, sizeof(buf), hints_for(app), COLS - 1, 1);
-    attron(COLOR_PAIR(CP_HINT) | A_DIM);
+    attron(COLOR_PAIR(CP_PRIMARY) | A_DIM);
     mvaddstr(row, 0, buf);
-    attroff(COLOR_PAIR(CP_HINT) | A_DIM);
+    attroff(COLOR_PAIR(CP_PRIMARY) | A_DIM);
 }
 
 /* ---------- feed ---------- */
@@ -436,7 +488,8 @@ void ui_draw_post_list(post_list_t *pl, int body_top, int bottom, const char *em
 }
 
 static void draw_feed(app_t *app) {
-    ui_draw_post_list(&app->feed, BODY_TOP, LINES - 2,
+    /* LINES - 3: leaves room for the footer's rule + status rows. */
+    ui_draw_post_list(&app->feed, BODY_TOP, LINES - 3,
                       app->feed.fetched ? "Feed is empty." : "Press r to load your feed.",
                       "end of feed");
 }
@@ -452,7 +505,7 @@ static const char *notif_phrase(const char *type) {
 }
 
 static void draw_notifs(app_t *app) {
-    int bottom = LINES - 2;
+    int bottom = LINES - 3;  /* leaves room for the footer's rule + status rows */
 
     if (app->notifs.count == 0) {
         attron(A_DIM);
@@ -585,7 +638,7 @@ static void draw_user_row(int row, const api_user_t *u, int selected, int follow
 /* Shared scroll + draw for the users tab and a pushed follows list. */
 static void draw_user_list(app_t *app, api_users_result_t *lst, int sel, int *top,
                            const char *empty_msg, int body_top) {
-    int bottom = LINES - 2;
+    int bottom = LINES - 3;  /* leaves room for the footer's rule + status rows */
 
     if (!lst || lst->count == 0) {
         attron(A_DIM);
@@ -660,7 +713,8 @@ static void draw_profile(app_t *app) {
     attroff(A_DIM);
     row++;
 
-    ui_draw_post_list(&app->profile_posts, row, LINES - 2,
+    /* LINES - 3: leaves room for the footer's rule + status rows. */
+    ui_draw_post_list(&app->profile_posts, row, LINES - 3,
                       "No posts yet.", "end");
 }
 
