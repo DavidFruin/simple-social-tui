@@ -60,12 +60,12 @@ void settings_draw(app_t *app, int body_top) {
         int selected = (i == app->settings_sel);
         int danger = (i == 2);
 
-        if (selected) { attron(A_REVERSE); mvhline(row, 0, ' ', COLS); }
+        if (selected) { attron(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD); mvhline(row, 0, ' ', COLS); }
         else if (danger) attron(COLOR_PAIR(CP_ERROR));
 
         mvprintw(row, 3, "%s", ACTION_LABEL[i]);
 
-        if (selected) attroff(A_REVERSE);
+        if (selected) attroff(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
         else if (danger) attroff(COLOR_PAIR(CP_ERROR));
     }
 }

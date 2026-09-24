@@ -228,7 +228,7 @@ void detail_draw(app_t *app, int body_top, int body_h) {
             case DL_META:    attron(A_DIM); break;
             case DL_MEDIA:   attron(A_DIM); break;
             case DL_SECTION: attron(A_BOLD); break;
-            case DL_MORE:    attron(app->detail_on_more ? (A_REVERSE | A_BOLD) : A_DIM); break;
+            case DL_MORE:    attron(app->detail_on_more ? (COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD) : A_DIM); break;
             default: break;
         }
 
@@ -246,7 +246,7 @@ void detail_draw(app_t *app, int body_top, int body_h) {
             case DL_META:    attroff(A_DIM); break;
             case DL_MEDIA:   attroff(A_DIM); break;
             case DL_SECTION: attroff(A_BOLD); break;
-            case DL_MORE:    attroff(app->detail_on_more ? (A_REVERSE | A_BOLD) : A_DIM); break;
+            case DL_MORE:    attroff(app->detail_on_more ? (COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD) : A_DIM); break;
             default: break;
         }
 

@@ -391,14 +391,14 @@ int filepick_run(app_t *app, char *out, size_t outsz) {
             char shown[512];
             ui_utf8_take(shown, sizeof(shown), label, w - 4, 1);
 
-            if (selected) wattron(win, A_REVERSE);
+            if (selected) wattron(win, COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
             else if (e->is_dir) wattron(win, COLOR_PAIR(CP_AUTHOR));
             else if (e->size > filepick_max_bytes(e->name)) wattron(win, COLOR_PAIR(CP_ERROR));
 
             mvwhline(win, y, 1, ' ', w - 2);
             mvwaddstr(win, y, 2, shown);
 
-            if (selected) wattroff(win, A_REVERSE);
+            if (selected) wattroff(win, COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
             else if (e->is_dir) wattroff(win, COLOR_PAIR(CP_AUTHOR));
             else if (e->size > filepick_max_bytes(e->name)) wattroff(win, COLOR_PAIR(CP_ERROR));
         }

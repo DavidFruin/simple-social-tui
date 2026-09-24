@@ -488,10 +488,10 @@ void ui_draw_post_list(post_list_t *pl, int body_top, int bottom, const char *em
         int x = (COLS - w) / 2;
         if (x < 0) x = 0;
 
-        if (pl->on_more && pl->store.has_more) attron(A_REVERSE | A_BOLD);
+        if (pl->on_more && pl->store.has_more) attron(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
         else attron(A_DIM);
         mvaddstr(row, x, more);
-        if (pl->on_more && pl->store.has_more) attroff(A_REVERSE | A_BOLD);
+        if (pl->on_more && pl->store.has_more) attroff(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
         else attroff(A_DIM);
     }
 }
@@ -563,12 +563,15 @@ static void draw_notifs(app_t *app) {
         char what[128];
         ui_utf8_take(what, sizeof(what), phrase, phrase_w, 1);
 
-        if (selected) { attron(A_REVERSE); mvhline(row, 0, ' ', COLS); }
+        if (selected) { attron(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD); mvhline(row, 0, ' ', COLS); }
 
         if (is_new) {
             attron(COLOR_PAIR(CP_BADGE) | A_BOLD);
             mvaddstr(row, 0, "\xe2\x97\x8f");     /* new marker */
             attroff(COLOR_PAIR(CP_BADGE) | A_BOLD);
+            /* attroff cleared the color pair entirely (not just the badge's
+             * own), so a selected+new row needs its fill pair reinstated. */
+            if (selected) attron(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
         }
 
         if (!selected) attron(COLOR_PAIR(CP_AUTHOR));
@@ -583,7 +586,7 @@ static void draw_notifs(app_t *app) {
         mvaddstr(row, COLS - when_w - 1, when);
         if (!selected) attroff(A_DIM);
 
-        if (selected) attroff(A_REVERSE);
+        if (selected) attroff(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
     }
 
     if (row <= bottom) {
@@ -597,10 +600,10 @@ static void draw_notifs(app_t *app) {
         int x = (COLS - w) / 2;
         if (x < 0) x = 0;
 
-        if (app->notif_on_more && app->notifs.has_more) attron(A_REVERSE | A_BOLD);
+        if (app->notif_on_more && app->notifs.has_more) attron(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
         else attron(A_DIM);
         mvaddstr(row, x, more);
-        if (app->notif_on_more && app->notifs.has_more) attroff(A_REVERSE | A_BOLD);
+        if (app->notif_on_more && app->notifs.has_more) attroff(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
         else attroff(A_DIM);
     }
 }
@@ -622,7 +625,7 @@ static void draw_user_row(int row, const api_user_t *u, int selected, int follow
     char email[288];
     ui_utf8_take(email, sizeof(email), u->email, email_w, 1);
 
-    if (selected) { attron(A_REVERSE); mvhline(row, 0, ' ', COLS); }
+    if (selected) { attron(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD); mvhline(row, 0, ' ', COLS); }
 
     if (!selected) attron(COLOR_PAIR(CP_AUTHOR));
     mvaddstr(row, 2, email);
@@ -641,7 +644,7 @@ static void draw_user_row(int row, const api_user_t *u, int selected, int follow
     mvaddstr(row, COLS - when_w - 1, when);
     if (!selected) attroff(A_DIM);
 
-    if (selected) attroff(A_REVERSE);
+    if (selected) attroff(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
 }
 
 /* Shared scroll + draw for the users tab and a pushed follows list. */

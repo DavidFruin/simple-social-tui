@@ -55,11 +55,11 @@ void auth_draw(app_t *app) {
         if (x < 2) x = 2;
 
         if (i == sel) {
-            attron(A_REVERSE);
+            attron(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
             mvhline(row, x - 2, ' ', w + 4);
         }
         mvaddstr(row, x, CHOICE[i]);
-        if (i == sel) attroff(A_REVERSE);
+        if (i == sel) attroff(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
     }
 
     /* Rule above the footer text, mirroring the web footer's border-top --
