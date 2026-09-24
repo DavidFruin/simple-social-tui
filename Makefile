@@ -51,7 +51,11 @@ src/%.o: src/%.c
 clean:
 	rm -f $(OBJS) $(BIN) $(OBJS:.o=.d)
 
-install: $(BIN)
+# Depends on `all`, not just $(BIN): $(BIN)'s own prerequisite $(LIBSS) has
+# no file rule of its own, only check-lib's recursive submodule build. Going
+# straight for `install` without a plain `make` first used to skip check-lib
+# entirely and fail with "No rule to make target '.../lib/libss.a'".
+install: all
 	install -m 755 $(BIN) /usr/local/bin/sstui
 
 uninstall:
