@@ -14,16 +14,40 @@ copy.
 
 ## Build
 
+Install a compiler, the ncurses headers and the libcurl runtime. On Debian or
+Ubuntu:
+
 ```
+sudo apt install build-essential libncurses-dev libcurl4 pkg-config
+```
+
+(On Ubuntu 24.04 and later the runtime package is `libcurl4t64`, and apt picks
+it if you ask for `libcurl4`.) `pkg-config` is optional, since the Makefile
+falls back without it. libcurl's own dev package is not needed, because its
+headers are vendored.
+
+Then clone and build somewhere you can write to, such as your home directory:
+
+```
+cd ~
 git clone --recursive https://github.com/DavidFruin/simple-social-tui.git
 cd simple-social-tui && make
 ```
+
+Don't clone from `/` or another root-owned directory. `git clone` fails there
+with `could not create work tree dir ... Permission denied`. Using `sudo git
+clone` instead leaves a root-owned tree that `make` can't write to either.
 
 `make` builds the vendored `simple-social-cli` library automatically if it isn't
 already built. If you cloned without `--recursive`, run
 `git submodule update --init --recursive` first.
 
-Needs `libncursesw` and a UTF-8 locale.
+Running it needs a UTF-8 locale.
+
+If `sudo apt update` fails because of a broken third-party repository (for
+example a missing signing key), `sudo apt update && sudo apt install ...` never
+reaches the install. Run the install on its own, or fix or remove that
+repository under `/etc/apt/sources.list.d/`.
 
 The built binary is statically linked against the vendored library (no `.so` to
 keep track of), so it works wherever it ends up - copied, symlinked, whatever.
