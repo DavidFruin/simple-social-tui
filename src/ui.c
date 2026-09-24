@@ -55,11 +55,14 @@ int ui_body_height(void) {
 }
 
 /* Draws an h x w box (ACS line-drawing, so it degrades on limited
- * terminals) with its top-left corner at (y, x) on stdscr. */
-void ui_draw_box(int y, int x, int h, int w) {
+ * terminals) with its top-left corner at (y, x) on stdscr. emphasize
+ * draws a bold border instead of a dim one -- used to mark the selected
+ * card among a list of collapsed ones. */
+void ui_draw_box(int y, int x, int h, int w, int emphasize) {
     if (h < 2 || w < 2) return;
 
-    attron(COLOR_PAIR(CP_PRIMARY) | A_DIM);
+    attr_t a = emphasize ? A_BOLD : A_DIM;
+    attron(COLOR_PAIR(CP_PRIMARY) | a);
     mvaddch(y, x, ACS_ULCORNER);
     mvhline(y, x + 1, ACS_HLINE, w - 2);
     mvaddch(y, x + w - 1, ACS_URCORNER);
@@ -72,7 +75,49 @@ void ui_draw_box(int y, int x, int h, int w) {
     mvaddch(y + h - 1, x, ACS_LLCORNER);
     mvhline(y + h - 1, x + 1, ACS_HLINE, w - 2);
     mvaddch(y + h - 1, x + w - 1, ACS_LRCORNER);
-    attroff(COLOR_PAIR(CP_PRIMARY) | A_DIM);
+    attroff(COLOR_PAIR(CP_PRIMARY) | a);
+}
+
+/* Draws one already-wrapped line of post/comment text, highlighting
+ * "@[id]" mention tokens in magenta. The vendored API client doesn't
+ * resolve mention ids to emails (the JSON parser never captures the
+ * `mentions` field the API attaches), so the id is dropped in favour of
+ * a generic "@user" rather than showing the raw number. */
+static void draw_text_line(int row, int col, const char *line) {
+    const char *p = line;
+    while (*p) {
+        const char *at = strstr(p, "@[");
+        if (!at) { mvaddstr(row, col, p); return; }
+
+        if (at > p) {
+            char pre[512];
+            size_t n = (size_t)(at - p);
+            if (n >= sizeof(pre)) n = sizeof(pre) - 1;
+            memcpy(pre, p, n);
+            pre[n] = '\0';
+            mvaddstr(row, col, pre);
+            col += ui_utf8_width(pre);
+        }
+
+        const char *digits = at + 2;
+        const char *q = digits;
+        while (*q >= '0' && *q <= '9') q++;
+
+        if (q > digits && *q == ']') {
+            attron(COLOR_PAIR(CP_MENTION) | A_BOLD);
+            mvaddstr(row, col, "@user");
+            attroff(COLOR_PAIR(CP_MENTION) | A_BOLD);
+            col += 5;
+            p = q + 1;
+        } else {
+            /* "@[" that wasn't actually a mention token -- print it
+             * literally (this also covers a token truncated mid-way by
+             * the caller's column budget) and move past it. */
+            mvaddstr(row, col, "@[");
+            col += 2;
+            p = at + 2;
+        }
+    }
 }
 
 int ui_utf8_width(const char *s) {
@@ -319,11 +364,11 @@ static int wrap_text(const char *text, int width, char lines[][512], int max_lin
 #define MAX_WRAP 64
 
 static int post_height(post_list_t *pl, int idx, int width) {
-    if (idx != pl->sel) return 1;
-    int body_w = width - 2;
+    if (idx != pl->sel) return 3;  /* collapsed: top border + content + bottom border */
+    int body_w = width - 4;
     if (body_w < 8) body_w = 8;
     int n = wrap_text(pl->store.posts[idx].text, body_w, NULL, MAX_WRAP);
-    return 1 /*header*/ + n + 1 /*meta*/ + 1 /*spacer*/;
+    return 4 /*top border + header + meta + bottom border*/ + n;
 }
 
 /* Scroll feed_top just far enough that the cursor is fully on screen.
@@ -346,8 +391,14 @@ static void ensure_visible(post_list_t *pl, int body_h) {
     }
 }
 
+/* Collapsed post: a 3-row box (top border, one content line, bottom
+ * border). Content-line layout mirrors the pre-box single-line version,
+ * just inset by one column on each side to clear the border. */
 static void draw_collapsed(post_list_t *pl, int row, int idx) {
     api_post_t *p = &pl->store.posts[idx];
+
+    ui_draw_box(row, 0, 3, COLS, 0);
+    int content = row + 1;
 
     char when[32];
     timefmt_short(p->timestamp, when, sizeof(when));
@@ -363,87 +414,98 @@ static void draw_collapsed(post_list_t *pl, int row, int idx) {
     char author[128];
     ui_utf8_take(author, sizeof(author), p->user_email, author_w, 1);
 
-    int text_x = 2 + author_w + 1;
+    mvaddstr(content, 1, p->media_url[0] ? "\xe2\x97\x8f" : " ");  /* ● marks media */
+
+    attron(COLOR_PAIR(CP_AUTHOR));
+    mvaddstr(content, 3, author);
+    attroff(COLOR_PAIR(CP_AUTHOR));
+
+    int text_x = 3 + author_w + 1;
     int right_w = likes_w + 2 + when_w + 1;   /* +2 keeps a gap after the text */
-    int text_w = COLS - text_x - right_w;
+    int text_w = (COLS - 1) - text_x - right_w;
     if (text_w < 4) text_w = 4;
 
     char text[1024];
     ui_utf8_take(text, sizeof(text), p->text, text_w, 1);
-
-    mvaddstr(row, 0, p->media_url[0] ? "\xe2\x97\x8f" : " ");  /* ● marks media */
-
-    attron(COLOR_PAIR(CP_AUTHOR));
-    mvaddstr(row, 2, author);
-    attroff(COLOR_PAIR(CP_AUTHOR));
-
-    mvaddstr(row, text_x, text);
+    draw_text_line(content, text_x, text);
 
     if (p->is_liked) attron(COLOR_PAIR(CP_LIKED) | A_BOLD);
-    mvaddstr(row, COLS - right_w, likes);
+    mvaddstr(content, (COLS - 1) - right_w, likes);
     if (p->is_liked) attroff(COLOR_PAIR(CP_LIKED) | A_BOLD);
 
     attron(A_DIM);
-    mvaddstr(row, COLS - when_w - 1, when);
+    mvaddstr(content, COLS - when_w - 2, when);
     attroff(A_DIM);
 }
 
+/* Expanded (selected) post: a box sized to its wrapped body, with a
+ * bold border to mark it as the selection among the collapsed cards
+ * around it. Clamped to `bottom` like the old unboxed version was --
+ * near the end of the screen it just shows fewer interior rows, always
+ * closing with its own bottom border rather than running past `bottom`. */
 static int draw_expanded(post_list_t *pl, int row, int idx, int bottom) {
     api_post_t *p = &pl->store.posts[idx];
-    int body_w = COLS - 2;
+    int body_w = COLS - 4;
     if (body_w < 8) body_w = 8;
+
+    static char lines[MAX_WRAP][512];
+    int n = wrap_text(p->text, body_w, lines, MAX_WRAP);
+
+    int h = 4 + n;   /* top border, header, n body lines, meta, bottom border */
+    if (row + h - 1 > bottom) h = bottom - row + 1;
+    if (h < 2) return bottom + 1;   /* no room left to draw anything */
+
+    ui_draw_box(row, 0, h, COLS, 1);
+    int last = row + h - 1;   /* the bottom border's row -- never draw on it */
 
     char when[32];
     timefmt_full(p->timestamp, when, sizeof(when));
     int when_w = ui_utf8_width(when);
 
     char author[128];
-    ui_utf8_take(author, sizeof(author), p->user_email, COLS - when_w - 6, 1);
+    ui_utf8_take(author, sizeof(author), p->user_email, COLS - when_w - 8, 1);
+
+    int r = row + 1;
 
     /* Header */
-    if (row <= bottom) {
-        attron(A_REVERSE);
-        mvhline(row, 0, ' ', COLS);
-        mvaddstr(row, 0, "\xe2\x96\xbc ");   /* ▼ */
-        attron(A_BOLD);
-        mvaddstr(row, 2, author);
-        attroff(A_BOLD);
-        if (COLS - when_w - 1 > 2 + ui_utf8_width(author))
-            mvaddstr(row, COLS - when_w - 1, when);
-        attroff(A_REVERSE);
+    if (r < last) {
+        attron(COLOR_PAIR(CP_AUTHOR) | A_BOLD);
+        mvaddstr(r, 3, author);
+        attroff(COLOR_PAIR(CP_AUTHOR) | A_BOLD);
+        if (COLS - when_w - 2 > 3 + ui_utf8_width(author)) {
+            attron(A_DIM);
+            mvaddstr(r, COLS - when_w - 2, when);
+            attroff(A_DIM);
+        }
+        r++;
     }
-    row++;
 
-    /* Body */
-    static char lines[MAX_WRAP][512];
-    int n = wrap_text(p->text, body_w, lines, MAX_WRAP);
-    for (int i = 0; i < n && row <= bottom; i++, row++)
-        mvaddstr(row, 2, lines[i]);
+    /* Body, with @[id] mentions highlighted. */
+    for (int i = 0; i < n && r < last; i++, r++)
+        draw_text_line(r, 3, lines[i]);
 
     /* Meta */
-    if (row <= bottom) {
+    if (r < last) {
         char meta[256];
         snprintf(meta, sizeof(meta), "%s %d", "\xe2\x99\xa5", p->like_count);
         if (p->is_liked) attron(COLOR_PAIR(CP_LIKED) | A_BOLD);
-        mvaddstr(row, 2, meta);
+        mvaddstr(r, 3, meta);
         if (p->is_liked) attroff(COLOR_PAIR(CP_LIKED) | A_BOLD);
 
         if (p->media_url[0]) {
-            int x = 2 + ui_utf8_width(meta) + 3;
-            int budget = COLS - x - 7 - 1;   /* 7 = "media: " */
+            int x = 3 + ui_utf8_width(meta) + 3;
+            int budget = (COLS - 2) - x - 7;   /* 7 = "media: " */
             if (budget > 4) {
                 char murl[512];
                 ui_utf8_take(murl, sizeof(murl), p->media_url, budget, 1);
                 attron(A_DIM);
-                mvprintw(row, x, "media: %s", murl);
+                mvprintw(r, x, "media: %s", murl);
                 attroff(A_DIM);
             }
         }
-        row++;
     }
 
-    if (row <= bottom) row++;  /* spacer */
-    return row;
+    return row + h;
 }
 
 void ui_draw_post_list(post_list_t *pl, int body_top, int bottom, const char *empty_msg,

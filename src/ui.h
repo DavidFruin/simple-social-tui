@@ -45,8 +45,10 @@ int  ui_prompt(app_t *app, const char *title, const char *label,
 int  ui_body_height(void);
 
 /* Draws an h x w box (ACS line-drawing, so it degrades on limited
- * terminals) with its top-left corner at (y, x) on stdscr. */
-void ui_draw_box(int y, int x, int h, int w);
+ * terminals) with its top-left corner at (y, x) on stdscr. emphasize
+ * draws a bold border instead of a dim one -- used to mark the selected
+ * card among a list of collapsed ones. */
+void ui_draw_box(int y, int x, int h, int w, int emphasize);
 
 /* Draws a scrollable post list with the selection expanded in place.
  * Shared by the feed and a profile's posts. */
