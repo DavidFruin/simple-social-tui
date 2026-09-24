@@ -77,7 +77,7 @@ void settings_draw(app_t *app, int body_top) {
 static void change_password(app_t *app) {
     const char *email = app->state.user.email;
 
-    if (!ui_confirm(app, "Email a one-time code to your address?")) {
+    if (!ui_confirm(app, "Email a one-time code to your address?", 0)) {
         app_set_status(app, "Cancelled.");
         return;
     }
@@ -146,7 +146,7 @@ static void change_password(app_t *app) {
 
 static void do_logout(app_t *app) {
     if (!ui_confirm(app, "Log out of this device? The CLI tools keep "
-                         "their own sessions and stay signed in.")) {
+                         "their own sessions and stay signed in.", 0)) {
         app_set_status(app, "Still logged in.");
         return;
     }
@@ -186,7 +186,7 @@ static void delete_account(app_t *app) {
 
     /* Third gate, after the two matching entries. */
     if (!ui_confirm(app, "Delete your account and everything in it? "
-                         "This cannot be undone.")) {
+                         "This cannot be undone.", 1)) {
         memset(pw1, 0, sizeof(pw1));
         memset(pw2, 0, sizeof(pw2));
         app_set_status(app, "Not deleted.");

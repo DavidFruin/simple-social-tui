@@ -370,7 +370,7 @@ int editor_run(app_t *app, editor_t *ed, const char *title, const char *send_lab
 
             case 27:                    /* esc: cancel, confirming if there is text */
                 if (ed->len > 0) {
-                    if (ui_confirm(app, "Discard what you have written?")) {
+                    if (ui_confirm(app, "Discard what you have written?", 1)) {
                         result = EDITOR_CANCEL;
                         goto done;
                     }

@@ -32,8 +32,10 @@ void ui_modal_error(app_t *app, const char *msg);
 void ui_help(app_t *app);
 
 /* Modal yes/no. Returns 1 for yes. Defaults to no: anything that is not
- * y or Y is a decline, so a stray keypress never confirms a delete. */
-int  ui_confirm(app_t *app, const char *question);
+ * y or Y is a decline, so a stray keypress never confirms a delete. danger
+ * draws the border/prompt in red instead of blue, mirroring the web app's
+ * btn-danger vs btn-primary -- use it for anything irreversible. */
+int  ui_confirm(app_t *app, const char *question, int danger);
 
 /* Modal single-line input. Returns 1 when Enter was pressed with content,
  * 0 on Esc or an empty Enter. With hidden set, keystrokes echo as dots --

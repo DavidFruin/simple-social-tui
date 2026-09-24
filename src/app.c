@@ -339,7 +339,7 @@ static int compose_text(app_t *app, const char *title, const char *send_label,
         if (rc == 0) { app_set_status(app, "Nothing written, nothing sent."); return 0; }
 
         /* No editor box to host ^O, so ask afterwards instead. */
-        if (attach && ui_confirm(app, "Attach a media file to this post?")) {
+        if (attach && ui_confirm(app, "Attach a media file to this post?", 0)) {
             char picked[1024];
             if (filepick_run(app, picked, sizeof(picked)))
                 snprintf(attach, attach_sz, "%s", picked);
@@ -389,7 +389,7 @@ static void delete_current_post(app_t *app) {
         app_set_status(app, "You can only delete your own posts.");
         return;
     }
-    if (!ui_confirm(app, "Delete this post? This cannot be undone.")) {
+    if (!ui_confirm(app, "Delete this post? This cannot be undone.", 1)) {
         app_set_status(app, "Not deleted.");
         return;
     }
@@ -413,7 +413,7 @@ static void delete_selected_comment(app_t *app) {
         app_set_status(app, "You can only delete your own comments.");
         return;
     }
-    if (!ui_confirm(app, "Delete this comment? This cannot be undone.")) {
+    if (!ui_confirm(app, "Delete this comment? This cannot be undone.", 1)) {
         app_set_status(app, "Not deleted.");
         return;
     }

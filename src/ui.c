@@ -807,17 +807,17 @@ void ui_modal_error(app_t *app, const char *msg) {
     WINDOW *win = newwin(h, w, top, left);
     if (!win) return;
 
-    if (has_colors()) wattron(win, COLOR_PAIR(CP_ERROR));
+    if (has_colors()) wattron(win, COLOR_PAIR(CP_ERROR) | A_BOLD);
     box(win, 0, 0);
     mvwaddstr(win, 0, 2, " Error ");
-    if (has_colors()) wattroff(win, COLOR_PAIR(CP_ERROR));
+    if (has_colors()) wattroff(win, COLOR_PAIR(CP_ERROR) | A_BOLD);
 
     for (int i = 0; i < n && i + 1 < h - 2; i++)
         mvwaddstr(win, 1 + i, 2, lines[i]);
 
-    wattron(win, A_DIM);
+    wattron(win, COLOR_PAIR(CP_ERROR) | A_DIM);
     mvwaddstr(win, h - 2, 2, "any key to dismiss");
-    wattroff(win, A_DIM);
+    wattroff(win, COLOR_PAIR(CP_ERROR) | A_DIM);
 
     wrefresh(win);
 
@@ -905,10 +905,12 @@ void ui_help(app_t *app) {
     WINDOW *win = newwin(h, w, top, left);
     if (!win) return;
 
+    wattron(win, COLOR_PAIR(CP_PRIMARY));
     box(win, 0, 0);
-    wattron(win, A_BOLD);
+    wattroff(win, COLOR_PAIR(CP_PRIMARY));
+    wattron(win, COLOR_PAIR(CP_PRIMARY) | A_BOLD);
     mvwaddstr(win, 0, 2, " Keys ");
-    wattroff(win, A_BOLD);
+    wattroff(win, COLOR_PAIR(CP_PRIMARY) | A_BOLD);
 
     for (int i = 0; i < n && i + 2 < h - 1; i++) {
         char buf[256];
@@ -922,9 +924,9 @@ void ui_help(app_t *app) {
         else wattroff(win, A_DIM);
     }
 
-    wattron(win, A_DIM);
+    wattron(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
     mvwaddstr(win, h - 2, 2, "any key to close");
-    wattroff(win, A_DIM);
+    wattroff(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
 
     wrefresh(win);
     timeout(-1);
@@ -935,8 +937,9 @@ void ui_help(app_t *app) {
     ui_draw(app);
 }
 
-int ui_confirm(app_t *app, const char *question) {
+int ui_confirm(app_t *app, const char *question, int danger) {
     static char lines[MAX_WRAP][512];
+    int cp = danger ? CP_ERROR : CP_PRIMARY;
 
     int w = COLS - 8;
     if (w > 60) w = 60;
@@ -954,20 +957,22 @@ int ui_confirm(app_t *app, const char *question) {
     WINDOW *win = newwin(h, w, top, left);
     if (!win) return 0;
 
+    wattron(win, COLOR_PAIR(cp));
     box(win, 0, 0);
-    wattron(win, A_BOLD);
-    mvwaddstr(win, 0, 2, " Confirm ");
-    wattroff(win, A_BOLD);
+    wattroff(win, COLOR_PAIR(cp));
+    wattron(win, COLOR_PAIR(cp) | A_BOLD);
+    mvwaddstr(win, 0, 2, danger ? " Confirm (cannot be undone) " : " Confirm ");
+    wattroff(win, COLOR_PAIR(cp) | A_BOLD);
 
     for (int i = 0; i < n && i + 1 < h - 2; i++)
         mvwaddstr(win, 1 + i, 2, lines[i]);
 
-    wattron(win, A_BOLD);
+    wattron(win, COLOR_PAIR(cp) | A_BOLD);
     mvwaddstr(win, h - 2, 2, "y");
-    wattroff(win, A_BOLD);
-    wattron(win, A_DIM);
+    wattroff(win, COLOR_PAIR(cp) | A_BOLD);
+    wattron(win, COLOR_PAIR(cp) | A_DIM);
     mvwaddstr(win, h - 2, 3, " to confirm, any other key to cancel");
-    wattroff(win, A_DIM);
+    wattroff(win, COLOR_PAIR(cp) | A_DIM);
 
     wrefresh(win);
 
@@ -1012,16 +1017,18 @@ int ui_prompt(app_t *app, const char *title, const char *label,
         WINDOW *win = newwin(h, w, top, left);
         if (!win) break;
 
+        wattron(win, COLOR_PAIR(CP_PRIMARY));
         box(win, 0, 0);
-        wattron(win, A_BOLD);
+        wattroff(win, COLOR_PAIR(CP_PRIMARY));
+        wattron(win, COLOR_PAIR(CP_PRIMARY) | A_BOLD);
         mvwprintw(win, 0, 2, " %s ", title);
-        wattroff(win, A_BOLD);
+        wattroff(win, COLOR_PAIR(CP_PRIMARY) | A_BOLD);
 
-        wattron(win, A_DIM);
+        wattron(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
         char lbl[128];
         ui_utf8_take(lbl, sizeof(lbl), label, w - 4, 1);
         mvwaddstr(win, 1, 2, lbl);
-        wattroff(win, A_DIM);
+        wattroff(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
 
         /* What to show: dots for a secret, the tail of the text otherwise. */
         char shown[1024];
@@ -1037,9 +1044,9 @@ int ui_prompt(app_t *app, const char *title, const char *label,
         }
         mvwaddstr(win, 2, 2, shown);
 
-        wattron(win, A_DIM);
+        wattron(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
         mvwaddstr(win, h - 2, 2, "enter accepts   esc cancels");
-        wattroff(win, A_DIM);
+        wattroff(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
 
         int cx = 2 + ui_utf8_width(shown);
         if (cx > w - 2) cx = w - 2;
