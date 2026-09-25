@@ -83,7 +83,7 @@ void ui_draw_box(int y, int x, int h, int w, int emphasize) {
  * resolve mention ids to emails (the JSON parser never captures the
  * `mentions` field the API attaches), so the id is dropped in favour of
  * a generic "@user" rather than showing the raw number. */
-void draw_text_line(int row, int col, const char *line) {
+void draw_text_line(int row, int col, const char *line, int plain) {
     const char *p = line;
     while (*p) {
         const char *at = strstr(p, "@[");
@@ -104,9 +104,13 @@ void draw_text_line(int row, int col, const char *line) {
         while (*q >= '0' && *q <= '9') q++;
 
         if (q > digits && *q == ']') {
-            attron(COLOR_PAIR(CP_MENTION) | A_BOLD);
+            /* plain: the caller already owns the background (e.g. a
+             * selected card's blue fill) -- magenta would clash or be
+             * unreadable there, so just leave "@user" in the current
+             * attributes instead of layering the mention color on top. */
+            if (!plain) attron(COLOR_PAIR(CP_MENTION) | A_BOLD);
             mvaddstr(row, col, "@user");
-            attroff(COLOR_PAIR(CP_MENTION) | A_BOLD);
+            if (!plain) attroff(COLOR_PAIR(CP_MENTION) | A_BOLD);
             col += 5;
             p = q + 1;
         } else {
@@ -411,6 +415,19 @@ static int draw_post_card(post_list_t *pl, int row, int idx, int bottom) {
     ui_draw_box(row, 0, h, COLS, selected);
     int last = row + h - 1;   /* the bottom border's row -- never draw on it */
 
+    /* Selection needs to be unmissable, not just a bolder border -- fill
+     * the whole card's interior with the same blue used for a selected
+     * row everywhere else (Notifications/Users/Settings). That means the
+     * per-kind semantic colors below (author cyan, likes green, mentions
+     * magenta, dim timestamps) are skipped while selected: they're tuned
+     * for a black background and would be unreadable or clash on blue,
+     * so the selected card trades that nuance for being impossible to
+     * miss, matching the rest of the app's selection language. */
+    if (selected) {
+        attron(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
+        for (int fr = row + 1; fr < last; fr++) mvhline(fr, 1, ' ', COLS - 2);
+    }
+
     char when[32];
     timefmt_full(p->timestamp, when, sizeof(when));
     int when_w = ui_utf8_width(when);
@@ -422,28 +439,29 @@ static int draw_post_card(post_list_t *pl, int row, int idx, int bottom) {
 
     /* Header */
     if (r < last) {
-        attron(COLOR_PAIR(CP_AUTHOR) | A_BOLD);
+        if (!selected) attron(COLOR_PAIR(CP_AUTHOR) | A_BOLD);
         mvaddstr(r, 3, author);
-        attroff(COLOR_PAIR(CP_AUTHOR) | A_BOLD);
+        if (!selected) attroff(COLOR_PAIR(CP_AUTHOR) | A_BOLD);
         if (COLS - when_w - 2 > 3 + ui_utf8_width(author)) {
-            attron(A_DIM);
+            if (!selected) attron(A_DIM);
             mvaddstr(r, COLS - when_w - 2, when);
-            attroff(A_DIM);
+            if (!selected) attroff(A_DIM);
         }
         r++;
     }
 
-    /* Body, with @[id] mentions highlighted. */
+    /* Body, with @[id] mentions highlighted -- except on the fill, where
+     * every foreground color but the fill's own would be unreadable. */
     for (int i = 0; i < n && r < last; i++, r++)
-        draw_text_line(r, 3, lines[i]);
+        draw_text_line(r, 3, lines[i], selected);
 
     /* Meta */
     if (r < last) {
         char meta[256];
         snprintf(meta, sizeof(meta), "%s %d", "\xe2\x99\xa5", p->like_count);
-        if (p->is_liked) attron(COLOR_PAIR(CP_LIKED) | A_BOLD);
+        if (p->is_liked && !selected) attron(COLOR_PAIR(CP_LIKED) | A_BOLD);
         mvaddstr(r, 3, meta);
-        if (p->is_liked) attroff(COLOR_PAIR(CP_LIKED) | A_BOLD);
+        if (p->is_liked && !selected) attroff(COLOR_PAIR(CP_LIKED) | A_BOLD);
 
         if (p->media_url[0]) {
             int x = 3 + ui_utf8_width(meta) + 3;
@@ -451,13 +469,14 @@ static int draw_post_card(post_list_t *pl, int row, int idx, int bottom) {
             if (budget > 4) {
                 char murl[512];
                 ui_utf8_take(murl, sizeof(murl), p->media_url, budget, 1);
-                attron(A_DIM);
+                if (!selected) attron(A_DIM);
                 mvprintw(r, x, "media: %s", murl);
-                attroff(A_DIM);
+                if (!selected) attroff(A_DIM);
             }
         }
     }
 
+    if (selected) attroff(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
     return row + h;
 }
 

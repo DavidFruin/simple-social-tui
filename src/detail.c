@@ -244,7 +244,7 @@ void detail_draw(app_t *app, int body_top, int body_h) {
         /* DL_PLAIN is the only kind carrying user-authored text (the post
          * body, a comment's wrapped body) -- everything else is generated
          * chrome text that can't contain a mention token. */
-        if (l->kind == DL_PLAIN) draw_text_line(row, 1, buf);
+        if (l->kind == DL_PLAIN) draw_text_line(row, 1, buf, selected);
         else mvaddstr(row, 1, buf);
 
         if (app->detail.is_liked && l->kind == DL_META && strstr(l->text, "\xe2\x99\xa5"))

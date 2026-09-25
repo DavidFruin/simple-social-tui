@@ -66,7 +66,9 @@ int  ui_utf8_width(const char *s);
 
 /* Draws one line of already-wrapped post/comment text, highlighting
  * "@[id]" mention tokens in magenta as "@user" (see ui.c for why the id
- * isn't resolved to a real email). */
-void draw_text_line(int row, int col, const char *line);
+ * isn't resolved to a real email). plain skips the magenta -- pass it
+ * when the caller already owns the background (e.g. a selection fill)
+ * and layering another color on top would clash or be unreadable. */
+void draw_text_line(int row, int col, const char *line, int plain);
 
 #endif
