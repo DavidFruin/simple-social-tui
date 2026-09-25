@@ -33,7 +33,13 @@ int ui_init(void) {
          * the app should look the same regardless of the terminal's own
          * scheme, the way the website looks the same in every browser. */
         assume_default_colors(COLOR_WHITE, COLOR_BLACK);
-        init_pair(CP_TAB_ACTIVE, COLOR_BLACK,   COLOR_BLUE);
+        /* White, not black, on blue: many terminals' default color scheme
+         * renders ANSI blue quite dark/muted (a classic terminal-theming
+         * problem -- pure blue reads as harsh next to black, so a lot of
+         * palettes tone it down), which made black text on it illegible
+         * on at least one real machine. White stays readable regardless
+         * of how light or dark that terminal's blue actually is. */
+        init_pair(CP_TAB_ACTIVE, COLOR_WHITE,   COLOR_BLUE);
         init_pair(CP_AUTHOR,     COLOR_CYAN,    COLOR_BLACK);
         init_pair(CP_LIKED,      COLOR_GREEN,   COLOR_BLACK);
         init_pair(CP_ERROR,      COLOR_RED,     COLOR_BLACK);
@@ -752,6 +758,15 @@ static void draw_profile(app_t *app) {
 }
 
 
+/* Stages the frame into curses' virtual screen but does NOT flush it to
+ * the terminal (no doupdate()) -- callers that draw nothing else call
+ * doupdate() themselves right after this; callers about to stage an
+ * overlay window on top (a modal, a prompt, the compose box) stage that
+ * too and call doupdate() exactly once for the combined result. Drawing
+ * this and an overlay as two separate physical updates is what used to
+ * cause a visible flash on every keystroke in a modal -- the background
+ * would actually paint, then a beat later the overlay would paint over
+ * it, instead of the two appearing as one atomic update. */
 void ui_draw(app_t *app) {
     if (app->in_auth) {
         auth_draw(app);
@@ -765,7 +780,6 @@ void ui_draw(app_t *app) {
         detail_draw(app, BODY_TOP, ui_body_height());
         draw_status(app);
         wnoutrefresh(stdscr);
-        doupdate();
         return;
     }
 
@@ -773,7 +787,6 @@ void ui_draw(app_t *app) {
         draw_profile(app);
         draw_status(app);
         wnoutrefresh(stdscr);
-        doupdate();
         return;
     }
 
@@ -791,7 +804,6 @@ void ui_draw(app_t *app) {
                        "Nobody here.", BODY_TOP + 2);
         draw_status(app);
         wnoutrefresh(stdscr);
-        doupdate();
         return;
     }
 
@@ -806,7 +818,6 @@ void ui_draw(app_t *app) {
 
     draw_status(app);
     wnoutrefresh(stdscr);
-    doupdate();
 }
 
 void ui_modal_error(app_t *app, const char *msg) {
@@ -851,6 +862,7 @@ void ui_modal_error(app_t *app, const char *msg) {
     app->status[0] = '\0';
     app->status_is_error = 0;
     ui_draw(app);
+    doupdate();   /* nothing else follows -- the modal is closing */
 }
 
 void ui_help(app_t *app) {
@@ -956,6 +968,7 @@ void ui_help(app_t *app) {
 
     delwin(win);
     ui_draw(app);
+    doupdate();   /* nothing else follows -- the modal is closing */
 }
 
 int ui_confirm(app_t *app, const char *question, int danger) {
@@ -1003,6 +1016,7 @@ int ui_confirm(app_t *app, const char *question, int danger) {
 
     delwin(win);
     ui_draw(app);
+    doupdate();   /* nothing else follows -- the modal is closing */
 
     return (ch == 'y' || ch == 'Y');
 }
@@ -1136,5 +1150,6 @@ int ui_prompt(app_t *app, const char *title, const char *label,
     memset(buf, 0, sizeof(buf));
 
     ui_draw(app);
+    doupdate();   /* nothing else follows -- the prompt is closing */
     return result;
 }

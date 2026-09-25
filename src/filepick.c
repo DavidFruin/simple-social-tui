@@ -260,7 +260,10 @@ static int path_prompt(app_t *app, char *out, size_t outsz, const char *start_di
         int cx = 2 + ((int)len > avail ? avail : (int)len);
         if (cx > w - 2) cx = w - 2;
         wmove(win, 1, cx);
-        wrefresh(win);
+        /* One combined flush with the background ui_draw() staged above,
+         * not two separate ones -- see ui_draw()'s comment. */
+        wnoutrefresh(win);
+        doupdate();
 
         int ch = wgetch(win);
         delwin(win);
@@ -415,7 +418,10 @@ int filepick_run(app_t *app, char *out, size_t outsz) {
         mvwaddstr(win, h - 2, 2, hint);
         wattroff(win, COLOR_PAIR(CP_PRIMARY) | A_DIM);
 
-        wrefresh(win);
+        /* One combined flush with the background ui_draw() staged above,
+         * not two separate ones -- see ui_draw()'s comment. */
+        wnoutrefresh(win);
+        doupdate();
 
         int ch = wgetch(win);
         delwin(win);

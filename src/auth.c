@@ -82,8 +82,11 @@ void auth_draw(app_t *app) {
         if (app->status_is_error) attroff(COLOR_PAIR(CP_ERROR) | A_BOLD);
     }
 
+    /* Stages only -- doesn't flush (see ui_draw()'s comment in ui.c for
+     * why). Callers that draw nothing else on top call doupdate()
+     * themselves; ui_prompt()'s loop, called while still on this screen,
+     * stages its own box on top and flushes both together. */
     wnoutrefresh(stdscr);
-    doupdate();
 }
 
 /* Adopts a fresh session: store both tokens and learn who we are. Every
@@ -267,6 +270,7 @@ int auth_screen(app_t *app) {
     for (;;) {
         app->auth_sel = sel;
         auth_draw(app);
+        doupdate();   /* auth_draw only stages the frame; nothing else follows here */
 
         int ch = getch();
         if (ch == ERR) continue;

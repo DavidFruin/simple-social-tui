@@ -503,6 +503,7 @@ void app_run(app_t *app) {
         if (app->logged_out) return;      /* main shows the login screen again */
 
         ui_draw(app);
+        doupdate();   /* ui_draw only stages the frame; nothing else follows here */
 
         int ch = getch();
 

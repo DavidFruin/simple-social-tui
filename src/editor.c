@@ -306,7 +306,12 @@ int editor_run(app_t *app, editor_t *ed, const char *title, const char *send_lab
         if (cx > b.w - 2) cx = b.w - 2;
         wmove(win, cy, cx);
 
-        wrefresh(win);
+        /* wnoutrefresh + a single doupdate(), not wrefresh(): ui_draw()
+         * above only staged the background, so this is what actually
+         * flushes -- background and box together, one physical update
+         * instead of two, which used to flash on every keystroke. */
+        wnoutrefresh(win);
+        doupdate();
 
         wint_t wch;
         int kind = wget_wch(win, &wch);
@@ -422,5 +427,6 @@ done:
     timeout(500);
     app->input_active = 0;
     ui_draw(app);
+    doupdate();   /* nothing else follows -- the editor is closing */
     return result;
 }
