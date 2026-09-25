@@ -83,7 +83,7 @@ void ui_draw_box(int y, int x, int h, int w, int emphasize) {
  * resolve mention ids to emails (the JSON parser never captures the
  * `mentions` field the API attaches), so the id is dropped in favour of
  * a generic "@user" rather than showing the raw number. */
-static void draw_text_line(int row, int col, const char *line) {
+void draw_text_line(int row, int col, const char *line) {
     const char *p = line;
     while (*p) {
         const char *at = strstr(p, "@[");

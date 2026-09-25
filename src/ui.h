@@ -64,4 +64,9 @@ void ui_utf8_take(char *dst, size_t dstsz, const char *src, int max_cols, int el
 /* Display width of a UTF-8 string in terminal columns. */
 int  ui_utf8_width(const char *s);
 
+/* Draws one line of already-wrapped post/comment text, highlighting
+ * "@[id]" mention tokens in magenta as "@user" (see ui.c for why the id
+ * isn't resolved to a real email). */
+void draw_text_line(int row, int col, const char *line);
+
 #endif

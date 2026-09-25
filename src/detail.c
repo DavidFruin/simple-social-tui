@@ -211,22 +211,28 @@ void detail_draw(app_t *app, int body_top, int body_h) {
                         app->comments.count > 0);
 
         if (l->kind == DL_RULE) {
-            attron(A_DIM);
+            attron(COLOR_PAIR(CP_PRIMARY) | A_DIM);
             mvhline(row, 0, ACS_HLINE, COLS);
-            attroff(A_DIM);
+            attroff(COLOR_PAIR(CP_PRIMARY) | A_DIM);
             continue;
         }
 
         char buf[512];
         ui_utf8_take(buf, sizeof(buf), l->text, COLS - 2, 1);
 
-        if (selected) attron(A_REVERSE);
+        /* Full-row blue fill for a selected comment's lines (author, its
+         * wrapped body, the trailing blank spacer -- everything sharing
+         * its cidx). Per-kind colors below are skipped while selected so
+         * they don't stomp the fill pair back to default mid-row. Only
+         * DL_CAUTHOR can actually collide (every other colored kind's
+         * cidx is always -1, never equal to a real comment_sel). */
+        if (selected) { attron(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD); mvhline(row, 0, ' ', COLS); }
 
         switch (l->kind) {
-            case DL_AUTHOR:  attron(COLOR_PAIR(CP_AUTHOR) | A_BOLD); break;
-            case DL_CAUTHOR: attron(COLOR_PAIR(CP_AUTHOR)); break;
-            case DL_META:    attron(A_DIM); break;
-            case DL_MEDIA:   attron(A_DIM); break;
+            case DL_AUTHOR:  if (!selected) attron(COLOR_PAIR(CP_AUTHOR) | A_BOLD); break;
+            case DL_CAUTHOR: if (!selected) attron(COLOR_PAIR(CP_AUTHOR)); break;
+            case DL_META:    if (!selected) attron(A_DIM); break;
+            case DL_MEDIA:   if (!selected) attron(A_DIM); break;
             case DL_SECTION: attron(A_BOLD); break;
             case DL_MORE:    attron(app->detail_on_more ? (COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD) : A_DIM); break;
             default: break;
@@ -235,22 +241,26 @@ void detail_draw(app_t *app, int body_top, int body_h) {
         if (app->detail.is_liked && l->kind == DL_META && strstr(l->text, "\xe2\x99\xa5"))
             attron(COLOR_PAIR(CP_LIKED) | A_BOLD);
 
-        mvaddstr(row, 1, buf);
+        /* DL_PLAIN is the only kind carrying user-authored text (the post
+         * body, a comment's wrapped body) -- everything else is generated
+         * chrome text that can't contain a mention token. */
+        if (l->kind == DL_PLAIN) draw_text_line(row, 1, buf);
+        else mvaddstr(row, 1, buf);
 
         if (app->detail.is_liked && l->kind == DL_META && strstr(l->text, "\xe2\x99\xa5"))
             attroff(COLOR_PAIR(CP_LIKED) | A_BOLD);
 
         switch (l->kind) {
-            case DL_AUTHOR:  attroff(COLOR_PAIR(CP_AUTHOR) | A_BOLD); break;
-            case DL_CAUTHOR: attroff(COLOR_PAIR(CP_AUTHOR)); break;
-            case DL_META:    attroff(A_DIM); break;
-            case DL_MEDIA:   attroff(A_DIM); break;
+            case DL_AUTHOR:  if (!selected) attroff(COLOR_PAIR(CP_AUTHOR) | A_BOLD); break;
+            case DL_CAUTHOR: if (!selected) attroff(COLOR_PAIR(CP_AUTHOR)); break;
+            case DL_META:    if (!selected) attroff(A_DIM); break;
+            case DL_MEDIA:   if (!selected) attroff(A_DIM); break;
             case DL_SECTION: attroff(A_BOLD); break;
             case DL_MORE:    attroff(app->detail_on_more ? (COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD) : A_DIM); break;
             default: break;
         }
 
-        if (selected) attroff(A_REVERSE);
+        if (selected) attroff(COLOR_PAIR(CP_TAB_ACTIVE) | A_BOLD);
     }
 }
 
