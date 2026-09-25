@@ -48,7 +48,7 @@ void auth_draw(app_t *app) {
 
     for (int i = 0; i < AUTH_CHOICES; i++) {
         int row = top + 3 + i;
-        if (row >= LINES - 2) break;  /* leaves room for the footer rule + status row */
+        if (row >= LINES - 3) break;  /* leaves room for the footer rule + hints + status rows */
 
         int w = ui_utf8_width(CHOICE[i]);
         int x = (COLS - w) / 2;
@@ -63,10 +63,16 @@ void auth_draw(app_t *app) {
     }
 
     /* Rule above the footer text, mirroring the web footer's border-top --
-     * matches the tab-bar chrome the rest of the app uses. */
+     * matches the tab-bar chrome the rest of the app uses. Hints get their
+     * own row so a status/error message never covers them (see ui.c's
+     * draw_status for why -- same fix applied here for consistency). */
     attron(COLOR_PAIR(CP_PRIMARY) | A_DIM);
-    mvhline(LINES - 2, 0, ACS_HLINE, COLS);
+    mvhline(LINES - 3, 0, ACS_HLINE, COLS);
     attroff(COLOR_PAIR(CP_PRIMARY) | A_DIM);
+
+    attron(A_DIM | COLOR_PAIR(CP_PRIMARY));
+    mvaddstr(LINES - 2, 0, "j/k:move   enter:choose   q:quit");
+    attroff(A_DIM | COLOR_PAIR(CP_PRIMARY));
 
     if (app->status[0]) {
         char buf[256];
@@ -74,10 +80,6 @@ void auth_draw(app_t *app) {
         if (app->status_is_error) attron(COLOR_PAIR(CP_ERROR) | A_BOLD);
         mvaddstr(LINES - 1, 0, buf);
         if (app->status_is_error) attroff(COLOR_PAIR(CP_ERROR) | A_BOLD);
-    } else {
-        attron(A_DIM | COLOR_PAIR(CP_PRIMARY));
-        mvaddstr(LINES - 1, 0, "j/k:move   enter:choose   q:quit");
-        attroff(A_DIM | COLOR_PAIR(CP_PRIMARY));
     }
 
     wnoutrefresh(stdscr);

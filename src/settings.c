@@ -23,7 +23,7 @@ void settings_move(app_t *app, int delta) {
 
 void settings_draw(app_t *app, int body_top) {
     int row = body_top;
-    int bottom = LINES - 3;  /* leaves room for the footer's rule + status rows */
+    int bottom = LINES - 4;  /* leaves room for the footer's rule + hints + status rows */
 
     attron(A_BOLD);
     mvaddstr(row++, 1, "Session");

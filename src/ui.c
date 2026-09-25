@@ -50,7 +50,7 @@ void ui_teardown(void) {
 }
 
 int ui_body_height(void) {
-    int h = LINES - BODY_TOP - 2;  /* minus the footer's rule + status rows */
+    int h = LINES - BODY_TOP - 3;  /* minus the footer's rule + hints + status rows */
     return h > 0 ? h : 0;
 }
 
@@ -286,29 +286,31 @@ static const char *hints_for(app_t *app) {
 }
 
 static void draw_status(app_t *app) {
-    /* Rule above the footer text, mirroring the web footer's border-top. */
+    /* Rule above the footer, mirroring the web footer's border-top. Hints
+     * get their own row so a status/error message never covers them --
+     * it used to take over this whole row and hide what the keys do
+     * right when something just happened and that's most worth knowing. */
     attron(COLOR_PAIR(CP_PRIMARY) | A_DIM);
-    mvhline(LINES - 2, 0, ACS_HLINE, COLS);
+    mvhline(LINES - 3, 0, ACS_HLINE, COLS);
     attroff(COLOR_PAIR(CP_PRIMARY) | A_DIM);
 
-    int row = LINES - 1;
-    move(row, 0);
+    move(LINES - 2, 0);
     clrtoeol();
-
-    if (app->status[0]) {
-        char buf[256];
-        ui_utf8_take(buf, sizeof(buf), app->status, COLS - 1, 1);
-        if (app->status_is_error) attron(COLOR_PAIR(CP_ERROR) | A_BOLD);
-        mvaddstr(row, 0, buf);
-        if (app->status_is_error) attroff(COLOR_PAIR(CP_ERROR) | A_BOLD);
-        return;
-    }
-
-    char buf[256];
-    ui_utf8_take(buf, sizeof(buf), hints_for(app), COLS - 1, 1);
+    char hbuf[256];
+    ui_utf8_take(hbuf, sizeof(hbuf), hints_for(app), COLS - 1, 1);
     attron(COLOR_PAIR(CP_PRIMARY) | A_DIM);
-    mvaddstr(row, 0, buf);
+    mvaddstr(LINES - 2, 0, hbuf);
     attroff(COLOR_PAIR(CP_PRIMARY) | A_DIM);
+
+    move(LINES - 1, 0);
+    clrtoeol();
+    if (app->status[0]) {
+        char sbuf[256];
+        ui_utf8_take(sbuf, sizeof(sbuf), app->status, COLS - 1, 1);
+        if (app->status_is_error) attron(COLOR_PAIR(CP_ERROR) | A_BOLD);
+        mvaddstr(LINES - 1, 0, sbuf);
+        if (app->status_is_error) attroff(COLOR_PAIR(CP_ERROR) | A_BOLD);
+    }
 }
 
 /* ---------- feed ---------- */
@@ -516,8 +518,8 @@ void ui_draw_post_list(post_list_t *pl, int body_top, int bottom, const char *em
 }
 
 static void draw_feed(app_t *app) {
-    /* LINES - 3: leaves room for the footer's rule + status rows. */
-    ui_draw_post_list(&app->feed, BODY_TOP, LINES - 3,
+    /* LINES - 4: leaves room for the footer's rule + hints + status rows. */
+    ui_draw_post_list(&app->feed, BODY_TOP, LINES - 4,
                       app->feed.fetched ? "Feed is empty." : "Press r to load your feed.",
                       "end of feed");
 }
@@ -533,7 +535,7 @@ static const char *notif_phrase(const char *type) {
 }
 
 static void draw_notifs(app_t *app) {
-    int bottom = LINES - 3;  /* leaves room for the footer's rule + status rows */
+    int bottom = LINES - 4;  /* leaves room for the footer's rule + hints + status rows */
 
     if (app->notifs.count == 0) {
         attron(A_DIM);
@@ -669,7 +671,7 @@ static void draw_user_row(int row, const api_user_t *u, int selected, int follow
 /* Shared scroll + draw for the users tab and a pushed follows list. */
 static void draw_user_list(app_t *app, api_users_result_t *lst, int sel, int *top,
                            const char *empty_msg, int body_top) {
-    int bottom = LINES - 3;  /* leaves room for the footer's rule + status rows */
+    int bottom = LINES - 4;  /* leaves room for the footer's rule + hints + status rows */
 
     if (!lst || lst->count == 0) {
         attron(A_DIM);
@@ -744,8 +746,8 @@ static void draw_profile(app_t *app) {
     attroff(A_DIM);
     row++;
 
-    /* LINES - 3: leaves room for the footer's rule + status rows. */
-    ui_draw_post_list(&app->profile_posts, row, LINES - 3,
+    /* LINES - 4: leaves room for the footer's rule + hints + status rows. */
+    ui_draw_post_list(&app->profile_posts, row, LINES - 4,
                       "No posts yet.", "end");
 }
 
